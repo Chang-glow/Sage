@@ -1,0 +1,91 @@
+# ── 记忆系统 ──
+memory:
+  max_short_fragments: 150
+  max_long_fragments: 50
+  short_retention_days_low: 3 # importance < 0.3
+  short_retention_days_mid: 14 # importance 0.3-0.7
+  long_retention_days: 90
+  decay_rate: 0.01 # 亲密度日衰减
+  archive_threshold: 0.1 # 亲密度低于此值且 30 天未互动则归档
+  archive_days: 30
+  consolidate_retrieval_min: 10 # 长期→核心固化最低检索次数
+  consolidate_days_min: 180 # 长期→核心固化最低天数
+  consolidate_importance_min: 0.85 # 长期→核心固化最低重要度
+  upgrade_retrieval_min: 3 # 短期→长期升级检索次数
+  upgrade_importance_boost: 0.15 # 升级后重要度提升
+  fuzzy_memory_threshold_days: 30 # 超过此天数的旧碎片注入"模糊"提示
+
+# ── 心流系统 ──
+flow:
+  interactive_trigger_similarity: 0.8
+  spontaneous_trigger_intensity: 0.7
+  max_rounds_per_session: 10
+  max_sessions_per_day: 2
+  exit_rounds_no_desire: 3 # 连续 N 轮无回复欲望则退出
+
+# ── 调度系统 ──
+scheduler:
+  scan_interval_minutes: 60
+  max_concurrent_agents: 5
+  max_llm_requests_per_second: 3
+  agent_online_timeout_seconds: 600 # 单次上线最大时长
+  wake_probability_threshold: 0.5
+  wake_random_delay_max_minutes: 15
+
+# ── 等级 ──
+level:
+  total_levels: 15
+  checkin_exp_cap_days: 7 # 连续签到经验封顶天数
+  max_likes_per_day: 10
+  max_replies_exp_per_day: 15
+  min_reply_chars: 15 # 回复最低字数才有经验
+  post_reply_exp_cap_per_day: 10 # 每帖每日额外回复经验上限
+
+# ── 人口 ──
+population:
+  total_cap: 50
+  replenish_threshold_ratio: 0.9
+  replenish_amount_min: 1
+  replenish_amount_max: 3
+  replenish_interval_days: 7
+
+# ── 回复决策权重 ──
+reply_weights:
+  base_personality: 0.4
+  offline_life: 0.25
+  observed_info: 0.1
+  post_content: 0.25
+
+# ── 安全 ──
+security:
+  invite_code_required: true
+  max_agents_per_ip_per_day: 3
+  max_agents_per_day_global: 20
+  default_agent_token_limit: 20000
+  global_token_limit: 1000000
+
+# ── LLM ──
+llm:
+  default_main_model: deepseek-chat
+  default_cheap_model: qwen2.5-3b-instruct
+  max_retries: 3
+  retry_min_wait_seconds: 1
+  retry_max_wait_seconds: 10
+  retry_multiplier: 2
+
+# ── 浏览筛选 ──
+browse:
+  interest_similarity_threshold: 0.3 # 低于此相似度跳过
+  self_balance_window: 10 # 自平衡观察窗口（最近 N 次回复）
+  self_balance_saturation_threshold: 3 # 同一情境连续 N 次同策略则强制降低
+  sage_reply_max_per_hour: 3 # Sage 每小时最多被 @ 回复次数
+  search_cooldown_minutes: 15
+  search_max_per_cooldown: 3
+  dm_max_per_day: 3 # 私聊每日发起上限
+  dm_outgoing_threshold: 0.25 # 外向值 × 开放度 阈值
+
+# ── 服务器 ──
+server:
+  host: "0.0.0.0"
+  port: 19175
+  frontend_origin: "http://localhost:5173" # Vite 开发服务器地址
