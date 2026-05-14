@@ -28,9 +28,13 @@ logger = structlog.get_logger()
 async def lifespan(app: FastAPI):
     missing = validate()
     if missing:
-        logger.error("config_validation_failed", missing=missing)
-        raise RuntimeError(f"Missing required env vars: {', '.join(missing)}")
+        logger.warning("config_validation_missing", missing=missing)
     logger.info("server_starting", host=config.server.host, port=config.server.port)
+
+    from app.skills.registry import registry
+
+    count = registry.load_all()
+    logger.info("skills_loaded", count=count)
     # 调度引擎将在 Phase 5 中启动
     yield
     logger.info("server_stopping")

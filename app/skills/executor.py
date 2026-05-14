@@ -1,0 +1,104 @@
+from __future__ import annotations
+
+import json
+import logging
+import re
+import time
+from typing import Any
+
+import structlog
+
+from app.config import config as yaml_config
+from app.skills.llm_manager import call_llm
+from app.skills.registry import registry
+from app.skills.skill_utils import SkillResult
+
+logger = structlog.get_logger()
+
+_JSON_BLOCK_RE = re.compile(r"```(?:json)?\s*\n?(.*?)```", re.DOTALL)
+
+
+def _resolve_model(model_type: str) -> str:
+    if "主力" in model_type:
+        return yaml_config.llm.default_main_model
+    return yaml_config.llm.default_cheap_model
+
+
+def _parse_response(raw: str, output_format: str, schema: dict | None = None) -> dict | str:
+    cleaned = raw.strip()
+    if "JSON" in output_format.upper():
+        m = _JSON_BLOCK_RE.search(cleaned)
+        if m:
+            cleaned = m.group(1).strip()
+        else:
+            start = cleaned.find("{")
+            end = cleaned.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                cleaned = cleaned[start : end + 1]
+        return json.loads(cleaned)
+    return cleaned
+
+
+async def execute(
+    skill_id: str,
+    context: dict[str, Any],
+    *,
+    llm_caller=None,
+    agent_id: str | None = None,
+) -> SkillResult:
+    t0 = time.monotonic()
+
+    try:
+        skill = registry.get(skill_id)
+    except KeyError:
+        return SkillResult(
+            skill_id=skill_id,
+            status="render_failure",
+            error=f"Skill not found: {skill_id}",
+        )
+
+    try:
+        prompt = skill.prompt_template.format(**context)
+    except (KeyError, ValueError) as e:
+        return SkillResult(
+            skill_id=skill_id,
+            status="render_failure",
+            error=f"Prompt render failed: {e}",
+        )
+
+    model = _resolve_model(skill.model_type)
+    caller = llm_caller or call_llm
+
+    try:
+        raw_response = await caller(prompt, model)
+    except Exception as e:
+        logger.error("llm_call_failed", skill_id=skill_id, error=str(e))
+        return SkillResult(
+            skill_id=skill_id,
+            model=model,
+            duration_ms=(time.monotonic() - t0) * 1000,
+            status="llm_failure",
+            error=str(e),
+        )
+
+    try:
+        parsed = _parse_response(raw_response, skill.output_format, skill.output_schema)
+        return SkillResult(
+            skill_id=skill_id,
+            raw_response=raw_response,
+            parsed=parsed,
+            model=model,
+            duration_ms=(time.monotonic() - t0) * 1000,
+            status="success",
+        )
+    except Exception as e:
+        logger.warning("parse_failed", skill_id=skill_id, raw=raw_response[:200])
+        return SkillResult(
+            skill_id=skill_id,
+            raw_response=raw_response,
+            parsed=raw_response,
+            model=model,
+            duration_ms=(time.monotonic() - t0) * 1000,
+            status="parse_failure",
+            error=str(e),
+        )
