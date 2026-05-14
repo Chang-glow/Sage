@@ -1,0 +1,90 @@
+institutions:
+  - id: EDU-001
+    name: 平陵一中
+    type: 省重点高中
+    age_range: [15, 18]
+    boarding: mixed
+    district: RES-001
+    note: 公认最好的中学，升学率最高
+    weight: 5
+
+  - id: EDU-002
+    name: 平陵二中
+    type: 普通高中
+    age_range: [15, 18]
+    boarding: day_only
+    district: RES-001
+    note: 中等水平，体育特长
+    weight: 10
+
+  - id: EDU-003
+    name: 平陵三中
+    type: 职业高中
+    age_range: [15, 18]
+    boarding: boarding_only
+    district: RES-003
+    note: 汽修/计算机/幼师方向
+    weight: 8
+
+  - id: EDU-004
+    name: 平陵四中
+    type: 普通高中
+    age_range: [15, 18]
+    boarding: boarding_only
+    district: RES-005
+    note: 郊区，分数线较低
+    weight: 6
+
+  - id: EDU-005
+    name: 平陵五中
+    type: 普通高中
+    age_range: [15, 18]
+    boarding: mixed
+    district: RES-002
+    note: 近年新建
+    weight: 4
+
+  - id: EDU-006
+    name: 平陵文理学院
+    type: 本科
+    age_range: [18, 22]
+    boarding: boarding_only
+    district: RES-003
+    note: 综合性本科，本地最高学府
+    weight: 15
+
+  - id: EDU-007
+    name: 平陵师范学院
+    type: 本科
+    age_range: [18, 22]
+    boarding: boarding_only
+    district: RES-003
+    note: 师范类，毕业生多留本地当老师
+    weight: 10
+
+  - id: EDU-008
+    name: 平陵职业技术学院
+    type: 专科
+    age_range: [18, 22]
+    boarding: boarding_only
+    district: RES-003
+    note: 技能型，就业率反而不错
+    weight: 12
+
+  - id: EDU-009
+    name: 平陵工业学校
+    type: 中专
+    age_range: [15, 18]
+    boarding: boarding_only
+    district: RES-004
+    note: 工科方向
+    weight: 4
+
+  - id: EDU-010
+    name: 平陵卫校
+    type: 中专
+    age_range: [15, 18]
+    boarding: boarding_only
+    district: RES-002
+    note: 护理/药剂方向
+    weight: 3

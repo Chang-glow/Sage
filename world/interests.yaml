@@ -1,0 +1,535 @@
+interests:
+  # ========== 娱乐消遣 ==========
+  - name: 刷短视频
+    category: 娱乐消遣
+    min_age: 14
+    max_age: 50
+    rarity: 1.0
+  - name: 听音乐
+    category: 娱乐消遣
+    min_age: 14
+    max_age: 50
+    rarity: 1.0
+  - name: 追剧
+    category: 娱乐消遣
+    min_age: 14
+    max_age: 50
+    rarity: 0.95
+  - name: 看电影
+    category: 娱乐消遣
+    min_age: 14
+    max_age: 50
+    rarity: 0.85
+  - name: 看小说
+    category: 娱乐消遣
+    min_age: 14
+    max_age: 50
+    rarity: 0.8
+  - name: 打游戏
+    category: 娱乐消遣
+    min_age: 14
+    max_age: 45
+    rarity: 0.85
+  - name: 刷微博
+    category: 娱乐消遣
+    min_age: 16
+    max_age: 40
+    rarity: 0.75
+  - name: 逛淘宝
+    category: 娱乐消遣
+    min_age: 16
+    max_age: 50
+    rarity: 0.7
+  - name: 看直播
+    category: 娱乐消遣
+    min_age: 14
+    max_age: 45
+    rarity: 0.7
+  - name: 刷B站
+    category: 娱乐消遣
+    min_age: 14
+    max_age: 35
+    rarity: 0.8
+  - name: 看动漫
+    category: 娱乐消遣
+    min_age: 14
+    max_age: 35
+    rarity: 0.6
+  - name: 追星
+    category: 娱乐消遣
+    min_age: 14
+    max_age: 30
+    rarity: 0.3
+  - name: 看球赛
+    category: 娱乐消遣
+    min_age: 16
+    max_age: 50
+    rarity: 0.4
+  - name: 听播客
+    category: 娱乐消遣
+    min_age: 18
+    max_age: 40
+    rarity: 0.25
+  - name: 刷知乎
+    category: 娱乐消遣
+    min_age: 16
+    max_age: 40
+    rarity: 0.4
+  - name: 打麻将
+    category: 娱乐消遣
+    min_age: 18
+    max_age: 50
+    rarity: 0.5
+  - name: 斗地主
+    category: 娱乐消遣
+    min_age: 18
+    max_age: 50
+    rarity: 0.45
+  - name: 看综艺
+    category: 娱乐消遣
+    min_age: 14
+    max_age: 40
+    rarity: 0.55
+  - name: 刷朋友圈
+    category: 娱乐消遣
+    min_age: 14
+    max_age: 50
+    rarity: 0.9
+  - name: K歌
+    category: 娱乐消遣
+    min_age: 16
+    max_age: 40
+    rarity: 0.35
+
+  # ========== 创作表达 ==========
+  - name: 写日记
+    category: 创作表达
+    min_age: 14
+    max_age: 50
+    rarity: 0.4
+  - name: 拍照
+    category: 创作表达
+    min_age: 14
+    max_age: 50
+    rarity: 0.75
+  - name: 画画
+    category: 创作表达
+    min_age: 14
+    max_age: 50
+    rarity: 0.35
+  - name: 写小说
+    category: 创作表达
+    min_age: 14
+    max_age: 50
+    rarity: 0.2
+  - name: 做手账
+    category: 创作表达
+    min_age: 14
+    max_age: 30
+    rarity: 0.15
+  - name: 做视频
+    category: 创作表达
+    min_age: 15
+    max_age: 40
+    rarity: 0.25
+  - name: 弹吉他
+    category: 创作表达
+    min_age: 14
+    max_age: 40
+    rarity: 0.2
+  - name: 唱歌
+    category: 创作表达
+    min_age: 14
+    max_age: 50
+    rarity: 0.5
+  - name: 做手工
+    category: 创作表达
+    min_age: 14
+    max_age: 50
+    rarity: 0.3
+  - name: 练字
+    category: 创作表达
+    min_age: 14
+    max_age: 50
+    rarity: 0.25
+  - name: 写诗
+    category: 创作表达
+    min_age: 14
+    max_age: 50
+    rarity: 0.15
+  - name: 编曲
+    category: 创作表达
+    min_age: 16
+    max_age: 40
+    rarity: 0.08
+  - name: 做美甲
+    category: 创作表达
+    min_age: 16
+    max_age: 40
+    rarity: 0.2
+  - name: 烘焙
+    category: 创作表达
+    min_age: 16
+    max_age: 50
+    rarity: 0.2
+  - name: 养花
+    category: 创作表达
+    min_age: 18
+    max_age: 50
+    rarity: 0.35
+  - name: 做模型
+    category: 创作表达
+    min_age: 14
+    max_age: 45
+    rarity: 0.1
+  - name: 画漫画
+    category: 创作表达
+    min_age: 14
+    max_age: 35
+    rarity: 0.12
+  - name: 写同人
+    category: 创作表达
+    min_age: 14
+    max_age: 30
+    rarity: 0.08
+  - name: P图
+    category: 创作表达
+    min_age: 14
+    max_age: 40
+    rarity: 0.3
+  - name: 做表情包
+    category: 创作表达
+    min_age: 14
+    max_age: 35
+    rarity: 0.35
+
+  # ========== 生活日常 ==========
+  - name: 做饭
+    category: 生活日常
+    min_age: 16
+    max_age: 50
+    rarity: 0.65
+  - name: 健身
+    category: 生活日常
+    min_age: 16
+    max_age: 45
+    rarity: 0.45
+  - name: 跑步
+    category: 生活日常
+    min_age: 14
+    max_age: 50
+    rarity: 0.5
+  - name: 养宠物
+    category: 生活日常
+    min_age: 14
+    max_age: 50
+    rarity: 0.4
+  - name: 逛超市
+    category: 生活日常
+    min_age: 14
+    max_age: 50
+    rarity: 0.7
+  - name: 整理收纳
+    category: 生活日常
+    min_age: 18
+    max_age: 50
+    rarity: 0.3
+  - name: 种菜
+    category: 生活日常
+    min_age: 25
+    max_age: 50
+    rarity: 0.2
+  - name: 喝奶茶
+    category: 生活日常
+    min_age: 14
+    max_age: 35
+    rarity: 0.6
+  - name: 吃麻辣烫
+    category: 生活日常
+    min_age: 14
+    max_age: 45
+    rarity: 0.65
+  - name: 逛公园
+    category: 生活日常
+    min_age: 14
+    max_age: 50
+    rarity: 0.55
+  - name: 钓鱼
+    category: 生活日常
+    min_age: 18
+    max_age: 50
+    rarity: 0.25
+  - name: 骑电动车兜风
+    category: 生活日常
+    min_age: 16
+    max_age: 40
+    rarity: 0.35
+  - name: 买菜
+    category: 生活日常
+    min_age: 18
+    max_age: 50
+    rarity: 0.55
+  - name: 晒被子
+    category: 生活日常
+    min_age: 18
+    max_age: 50
+    rarity: 0.4
+  - name: 晨练
+    category: 生活日常
+    min_age: 30
+    max_age: 50
+    rarity: 0.3
+  - name: 养生
+    category: 生活日常
+    min_age: 25
+    max_age: 50
+    rarity: 0.3
+  - name: 熬夜
+    category: 生活日常
+    min_age: 14
+    max_age: 35
+    rarity: 0.7
+  - name: 午睡
+    category: 生活日常
+    min_age: 14
+    max_age: 50
+    rarity: 0.55
+  - name: 逛夜市
+    category: 生活日常
+    min_age: 14
+    max_age: 45
+    rarity: 0.45
+  - name: 打卡新店
+    category: 生活日常
+    min_age: 14
+    max_age: 35
+    rarity: 0.3
+
+  # ========== 情感社交 ==========
+  - name: 吐槽工作
+    category: 情感社交
+    min_age: 18
+    max_age: 50
+    rarity: 0.75
+  - name: 吐槽学习
+    category: 情感社交
+    min_age: 14
+    max_age: 22
+    rarity: 0.8
+  - name: 暗恋
+    category: 情感社交
+    min_age: 14
+    max_age: 30
+    rarity: 0.35
+  - name: 失恋
+    category: 情感社交
+    min_age: 14
+    max_age: 40
+    rarity: 0.25
+  - name: 催婚
+    category: 情感社交
+    min_age: 25
+    max_age: 40
+    rarity: 0.3
+  - name: 相亲
+    category: 情感社交
+    min_age: 22
+    max_age: 45
+    rarity: 0.25
+  - name: 和父母吵架
+    category: 情感社交
+    min_age: 14
+    max_age: 25
+    rarity: 0.3
+  - name: 室友矛盾
+    category: 情感社交
+    min_age: 15
+    max_age: 22
+    rarity: 0.25
+  - name: 职场吐槽
+    category: 情感社交
+    min_age: 18
+    max_age: 50
+    rarity: 0.65
+  - name: 朋友圈点赞
+    category: 情感社交
+    min_age: 14
+    max_age: 50
+    rarity: 0.7
+  - name: 深夜emo
+    category: 情感社交
+    min_age: 14
+    max_age: 40
+    rarity: 0.45
+  - name: 树洞倾诉
+    category: 情感社交
+    min_age: 14
+    max_age: 50
+    rarity: 0.35
+  - name: 网上交友
+    category: 情感社交
+    min_age: 14
+    max_age: 40
+    rarity: 0.3
+  - name: 同学聚会
+    category: 情感社交
+    min_age: 22
+    max_age: 50
+    rarity: 0.25
+  - name: 借钱还钱
+    category: 情感社交
+    min_age: 18
+    max_age: 50
+    rarity: 0.2
+  - name: 被领导骂
+    category: 情感社交
+    min_age: 18
+    max_age: 50
+    rarity: 0.3
+  - name: 羡慕别人
+    category: 情感社交
+    min_age: 14
+    max_age: 50
+    rarity: 0.4
+  - name: 考试焦虑
+    category: 情感社交
+    min_age: 14
+    max_age: 22
+    rarity: 0.5
+  - name: 容貌焦虑
+    category: 情感社交
+    min_age: 14
+    max_age: 35
+    rarity: 0.35
+  - name: 社恐发作
+    category: 情感社交
+    min_age: 14
+    max_age: 35
+    rarity: 0.4
+
+  # ========== 小众爱好 ==========
+  - name: 养多肉
+    category: 小众爱好
+    min_age: 16
+    max_age: 45
+    rarity: 0.15
+  - name: 观鸟
+    category: 小众爱好
+    min_age: 18
+    max_age: 50
+    rarity: 0.03
+  - name: 收集邮票
+    category: 小众爱好
+    min_age: 25
+    max_age: 50
+    rarity: 0.04
+  - name: 手冲咖啡
+    category: 小众爱好
+    min_age: 18
+    max_age: 40
+    rarity: 0.1
+  - name: 养爬宠
+    category: 小众爱好
+    min_age: 16
+    max_age: 40
+    rarity: 0.05
+  - name: 汉服
+    category: 小众爱好
+    min_age: 14
+    max_age: 35
+    rarity: 0.12
+  - name: 洛丽塔
+    category: 小众爱好
+    min_age: 14
+    max_age: 30
+    rarity: 0.06
+  - name: JK制服
+    category: 小众爱好
+    min_age: 14
+    max_age: 28
+    rarity: 0.08
+  - name: cosplay
+    category: 小众爱好
+    min_age: 14
+    max_age: 30
+    rarity: 0.06
+  - name: 盲盒抽盒
+    category: 小众爱好
+    min_age: 14
+    max_age: 35
+    rarity: 0.15
+  - name: 剧本杀
+    category: 小众爱好
+    min_age: 16
+    max_age: 35
+    rarity: 0.2
+  - name: 密室逃脱
+    category: 小众爱好
+    min_age: 16
+    max_age: 35
+    rarity: 0.15
+  - name: 塔罗牌
+    category: 小众爱好
+    min_age: 14
+    max_age: 35
+    rarity: 0.1
+  - name: 占星
+    category: 小众爱好
+    min_age: 14
+    max_age: 35
+    rarity: 0.08
+  - name: 冥想
+    category: 小众爱好
+    min_age: 16
+    max_age: 50
+    rarity: 0.12
+  - name: 街舞
+    category: 小众爱好
+    min_age: 14
+    max_age: 30
+    rarity: 0.08
+  - name: 说唱
+    category: 小众爱好
+    min_age: 14
+    max_age: 30
+    rarity: 0.08
+  - name: 滑板
+    category: 小众爱好
+    min_age: 14
+    max_age: 28
+    rarity: 0.1
+  - name: 无人机
+    category: 小众爱好
+    min_age: 18
+    max_age: 45
+    rarity: 0.04
+  - name: 无线电
+    category: 小众爱好
+    min_age: 18
+    max_age: 50
+    rarity: 0.02
+  - name: 广场舞
+    category: 小众爱好
+    min_age: 35
+    max_age: 50
+    rarity: 0.25
+  - name: 太极拳
+    category: 小众爱好
+    min_age: 30
+    max_age: 50
+    rarity: 0.15
+  - name: 书法
+    category: 小众爱好
+    min_age: 25
+    max_age: 50
+    rarity: 0.12
+  - name: 围棋
+    category: 小众爱好
+    min_age: 18
+    max_age: 50
+    rarity: 0.06
+  - name: 航模
+    category: 小众爱好
+    min_age: 14
+    max_age: 45
+    rarity: 0.03

@@ -70,7 +70,7 @@ async def execute(
     caller = llm_caller or call_llm
 
     try:
-        raw_response = await caller(prompt, model)
+        raw_response = await caller(prompt, model, skill_id=skill_id)
     except Exception as e:
         logger.error("llm_call_failed", skill_id=skill_id, error=str(e))
         return SkillResult(

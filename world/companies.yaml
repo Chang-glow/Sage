@@ -1,0 +1,84 @@
+companies:
+  - id: COM-001
+    name: 平陵电子厂
+    type: 代工厂
+    occupation_categories: [普工, 质检员, 线长]
+    district: RES-004
+    note: 大型手机组装代工厂，三班倒
+
+  - id: COM-002
+    name: 平陵纺织厂
+    type: 加工制造
+    occupation_categories: [普工, 机修师傅]
+    district: RES-004
+    note: 老国企改制
+
+  - id: COM-003
+    name: 天元汽配
+    type: 小型制造
+    occupation_categories: [文员, 销售, 会计]
+    district: RES-005
+    note: 本土小企业
+
+  - id: COM-004
+    name: 平陵商贸城
+    type: 批发零售
+    occupation_categories: [个体户, 店员, 搬运工]
+    district: RES-001
+    note: 老城区大型批发市场
+
+  - id: COM-005
+    name: 鑫旺超市
+    type: 零售连锁
+    occupation_categories: [收银员, 理货员, 店长]
+    district: RES-002
+    note: 本地连锁，共5家门店
+
+  - id: COM-006
+    name: 平陵市政工程公司
+    type: 国企分支
+    occupation_categories: [文员, 技术员, 工人]
+    district: RES-002
+    note: 修路/绿化/市政维护
+
+  - id: COM-007
+    name: 社区卫生服务中心
+    type: 基层医疗
+    occupation_categories: [全科医生, 护士, 药剂师]
+    district: RES-002
+    note: 新城区
+
+  - id: COM-008
+    name: 美团平陵站
+    type: 外卖配送
+    occupation_categories: [外卖员, 站长]
+    district: RES-001
+    note: 骑手约80人
+
+  - id: COM-009
+    name: 滴滴平陵
+    type: 网约车
+    occupation_categories: [网约车司机]
+    district: RES-001
+    note: 无自有车辆，司机挂靠
+
+  - id: COM-010
+    name: 顺丰平陵网点
+    type: 快递物流
+    occupation_categories: [快递员, 客服]
+    district: RES-005
+    note: 开发区
+
+  - id: COM-011
+    name: 平陵广告公司
+    type: 小型服务
+    occupation_categories: [平面设计, 安装工]
+    district: RES-001
+    note: 门面店
+
+  - id: COM-012
+    name: 平陵宾馆
+    type: 服务业
+    occupation_categories: [前台, 保洁]
+    district: RES-001
+    note: 老牌宾馆，三星

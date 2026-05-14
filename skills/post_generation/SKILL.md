@@ -5,7 +5,7 @@ post_decision 返回 will_post=true 时触发
 
 ## 模型
 - 类型：主力
-- 推荐：DeepSeek-V4-flash
+- 推荐：deepseek-ai/DeepSeek-V3.2
 
 ## 输入
 | 变量 | 说明 |

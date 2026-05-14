@@ -53,7 +53,9 @@ class Bar(Base):
     current_owner: Mapped["Agent"] = relationship(
         "Agent", foreign_keys=[current_owner_id]
     )
-    posts: Mapped[list["Post"]] = relationship("Post", back_populates="bar")
+    posts: Mapped[list["Post"]] = relationship(
+        "Post", back_populates="bar", foreign_keys="[Post.bar_id]"
+    )
     members: Mapped[list["BarMember"]] = relationship(
         "BarMember", back_populates="bar", cascade="all, delete-orphan"
     )

@@ -4,8 +4,9 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.config import config, validate
+from app.config import config, settings, validate
 
 structlog.configure(
     processors=[
@@ -35,8 +36,13 @@ async def lifespan(app: FastAPI):
 
     count = registry.load_all()
     logger.info("skills_loaded", count=count)
-    # 调度引擎将在 Phase 5 中启动
+
+    engine = create_async_engine(settings.database_url)
+    app.state.db_session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
     yield
+
+    await engine.dispose()
     logger.info("server_stopping")
 
 
@@ -53,6 +59,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+from app.api.agents import router as agents_router
+from app.api.admin import router as admin_router
+
+app.include_router(agents_router, prefix="/api/agents", tags=["agents"])
+app.include_router(admin_router, prefix="/api/admin", tags=["admin"])
 
 
 @app.get("/health")

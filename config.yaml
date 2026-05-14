@@ -66,8 +66,8 @@ security:
 
 # ── LLM ──
 llm:
-  default_main_model: deepseek-chat
-  default_cheap_model: qwen2.5-3b-instruct
+  default_main_model: deepseek-ai/DeepSeek-V3.2
+  default_cheap_model: inclusionAI/Ling-mini-2.0
   max_retries: 3
   retry_min_wait_seconds: 1
   retry_max_wait_seconds: 10

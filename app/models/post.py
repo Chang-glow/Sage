@@ -54,7 +54,9 @@ class Post(Base):
     )
 
     author: Mapped["Agent"] = relationship("Agent", backref="posts")
-    bar: Mapped[Optional["Bar"]] = relationship("Bar", back_populates="posts")
+    bar: Mapped[Optional["Bar"]] = relationship(
+        "Bar", back_populates="posts", foreign_keys=[bar_id]
+    )
     replies: Mapped[list["Reply"]] = relationship(
         "Reply", back_populates="post", cascade="all, delete-orphan"
     )

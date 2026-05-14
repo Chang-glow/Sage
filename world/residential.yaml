@@ -1,0 +1,30 @@
+residential_areas:
+  - id: RES-001
+    name: 老城区
+    description: 旧小区多，烟火气重，房价低
+    typical_residents: [本地老人, 低收入家庭, 陪读家庭]
+    adjacent_landmarks: [平陵一中, 平陵二中, 商贸城, 人民路步行街]
+
+  - id: RES-002
+    name: 新城区
+    description: 高层住宅，平陵广场旁
+    typical_residents: [年轻家庭, 小公司职员]
+    adjacent_landmarks: [平陵广场, 鑫旺超市, 社区卫生服务中心, 平陵五中]
+
+  - id: RES-003
+    name: 大学城片区
+    description: 平陵文理学院+师院+职院周边
+    typical_residents: [学生, 出租房房东, 后街商户]
+    adjacent_landmarks: [平陵文理学院, 平陵师范学院, 职业技术学院, 职院后街]
+
+  - id: RES-004
+    name: 厂区宿舍
+    description: 电子厂/纺织厂配套宿舍
+    typical_residents: [工人, 外地务工者]
+    adjacent_landmarks: [平陵电子厂, 平陵纺织厂, 平陵工业学校]
+
+  - id: RES-005
+    name: 开发区
+    description: 新建楼盘，入住率低
+    typical_residents: [新购房者, 外来务工家庭]
+    adjacent_landmarks: [顺丰网点, 天元汽配, 平陵四中]

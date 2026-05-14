@@ -5,7 +5,7 @@ offline_summary 返回 urge_intensity > 0.6 时触发
 
 ## 模型
 - 类型：便宜
-- 推荐：Qwen2.5-3B
+- 推荐：inclusionAI/Ling-mini-2.0
 
 ## 输入
 | 变量 | 说明 |

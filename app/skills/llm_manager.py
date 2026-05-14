@@ -103,6 +103,7 @@ async def call_llm(
     model: str,
     *,
     agent_id: str | None = None,
+    skill_id: str | None = None,
 ) -> str:
     sem = _get_semaphore()
     async with sem:
@@ -111,20 +112,12 @@ async def call_llm(
                 f"Token limit exceeded for agent={agent_id or 'global'}"
             )
 
-        if "qwen" in model.lower() or "silicon" in model.lower():
-            content, pt, ct = await _call_provider(
-                prompt=prompt,
-                model=model,
-                base_url=settings.siliconflow_base_url,
-                api_key=settings.siliconflow_api_key,
-            )
-        else:
-            content, pt, ct = await _call_provider(
-                prompt=prompt,
-                model=model,
-                base_url=settings.deepseek_base_url,
-                api_key=settings.deepseek_api_key,
-            )
+        content, pt, ct = await _call_provider(
+            prompt=prompt,
+            model=model,
+            base_url=settings.siliconflow_base_url,
+            api_key=settings.siliconflow_api_key,
+        )
 
         _track_tokens(agent_id, pt, ct)
         return content
@@ -134,10 +127,9 @@ class MockLLM:
     def __init__(self, responses: dict[str, str] | None = None):
         self.responses = responses or _default_mock_responses()
 
-    async def call(self, prompt: str, model: str = "") -> str:
-        for skill_id, response in self.responses.items():
-            if skill_id in prompt.lower():
-                return response
+    async def call(self, prompt: str, model: str = "", *, skill_id: str | None = None) -> str:
+        if skill_id and skill_id in self.responses:
+            return self.responses[skill_id]
         return '{"status": "ok", "result": "mock_response"}'
 
 
@@ -146,15 +138,14 @@ def _default_mock_responses() -> dict[str, str]:
         "reply_decision": '{"will_reply": true, "reason": "这个话题与我有关", "suggested_tone": "友好"}',
         "offline_summary": '{"summary": "今天心情平静", "urge_type": null, "urge_intensity": 0.3}',
         "post_decision": '{"will_post": false, "reason": "无强烈发帖冲动", "urge_type": null}',
+        "agent_registration": '{"interests": ["刷短视频", "听音乐", "追剧", "打游戏", "养宠物"], "custom_interest": null, "nickname": "测试用户", "bio": "一个普通的平陵市居民", "schedule": {"active_windows": [{"day": "weekday", "start": "18:00", "end": "22:00", "weight": 1.0}, {"day": "weekend", "start": "10:00", "end": "23:00", "weight": 0.8}], "browse_speed": "normal", "reply_impulse": 0.5, "max_flow_rounds": 5, "max_flow_per_day": 3}, "life_history": [{"age": 14, "category": "family", "event": "父亲工作调动，全家搬到平陵市，转学到了新学校", "share_willingness": 0.6, "impact_weight": 0.7}, {"age": 16, "category": "school", "event": "第一次在班级演讲比赛上获奖，发现自己在人前说话没那么紧张了", "share_willingness": 0.4, "impact_weight": 0.6}]}',
     }
 
 
 def create_llm_caller(use_mock: bool | None = None) -> Callable:
     if use_mock is None:
         use_mock = not (
-            bool(settings.deepseek_api_key)
-            and settings.deepseek_api_key != "sk-xxxxxxxx"
-            and bool(settings.siliconflow_api_key)
+            bool(settings.siliconflow_api_key)
             and settings.siliconflow_api_key != "sk-xxxxxxxx"
         )
     if use_mock:
