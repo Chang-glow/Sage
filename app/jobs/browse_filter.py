@@ -119,6 +119,11 @@ async def run_browse_filter(
             results.append(BrowseFilterResult(post_id=post_id, passed=False, reason="blocked_author"))
             continue
 
+        # Stage 1.5: Hidden post check
+        if getattr(post, "is_hidden", False):
+            results.append(BrowseFilterResult(post_id=post_id, passed=False, reason="hidden"))
+            continue
+
         # Stage 2: Keyword filter
         if _BLOCKED_KEYWORDS:
             text = (post.title or "") + " " + (post.content or "")

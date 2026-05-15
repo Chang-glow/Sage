@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import config as yaml_config
 from app.jobs.concurrency import get_agent_semaphore
 from app.models.agent import ActivityLog, Agent, AgentDailySchedule
-from app.models.bar import Bar, BarMember
+from app.models.bar import AgentBarLevel, Bar, BarMember
 from app.models.notification import Notification
 from app.models.post import Post, Reply
 from app.skills.executor import execute
@@ -257,6 +257,27 @@ async def _step2_post_urge(
 
     target_bar = result.parsed.get("target_bar", "广场")
     bar_description = target_bar
+
+    # Check post-level threshold for the target bar
+    if target_bar != "广场":
+        bar_result = await db.execute(
+            select(Bar).where(Bar.name == target_bar)
+        )
+        bar = bar_result.scalar_one_or_none()
+        if bar is not None:
+            threshold = getattr(bar, "post_level_threshold", 4)
+            level_result = await db.execute(
+                select(AgentBarLevel).where(
+                    AgentBarLevel.agent_id == agent.id,
+                    AgentBarLevel.bar_id == bar.id,
+                )
+            )
+            agent_level_record = level_result.scalar_one_or_none()
+            current_level = agent_level_record.level if agent_level_record else 1
+            if current_level < threshold:
+                logger.info("post_blocked_by_level", agent_id=agent_id,
+                            bar=target_bar, level=current_level, threshold=threshold)
+                return
 
     gen_ctx = {
         **base_ctx,

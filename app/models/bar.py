@@ -42,6 +42,9 @@ class Bar(Base):
     bar_rules_post_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("posts.id", use_alter=True)
     )
+    post_level_threshold: Mapped[int] = mapped_column(
+        Integer, server_default=text("4"), default=4
+    )
     is_sage_managed: Mapped[bool] = mapped_column(
         Boolean, server_default=text("false"), default=False
     )
@@ -139,6 +142,11 @@ class BarModLog(Base):
     target_type: Mapped[Optional[str]] = mapped_column(String(50))
     target_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True))
     reason: Mapped[Optional[str]] = mapped_column(String)
+    is_appealed: Mapped[bool] = mapped_column(
+        Boolean, server_default=text("false"), default=False
+    )
+    appeal_reason: Mapped[Optional[str]] = mapped_column(String)
+    appeal_status: Mapped[Optional[str]] = mapped_column(String(20))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )

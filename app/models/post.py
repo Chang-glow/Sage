@@ -31,6 +31,9 @@ class Post(Base):
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     content: Mapped[str] = mapped_column(String, nullable=False)
     urge_type: Mapped[Optional[str]] = mapped_column(String(50))
+    is_hidden: Mapped[bool] = mapped_column(
+        Boolean, server_default=text("false"), default=False
+    )
     is_essential: Mapped[bool] = mapped_column(
         Boolean, server_default=text("false"), default=False, index=True
     )
