@@ -6,12 +6,15 @@ from datetime import date, datetime, timezone
 from typing import Callable
 
 import structlog
-from sqlalchemy import select, update
+from sqlalchemy import select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import config as yaml_config
 from app.jobs.concurrency import get_agent_semaphore
 from app.models.agent import ActivityLog, Agent, AgentDailySchedule
+from app.models.bar import Bar, BarMember
+from app.models.notification import Notification
+from app.models.post import Post, Reply
 from app.skills.executor import execute
 from app.skills.skill_utils import build_agent_context
 
@@ -161,20 +164,19 @@ async def _run_online_flow_inner(
         urge_type = None
         urge_intensity = 0.0
 
-    # Step 2: Post urge check (placeholder — Phase 3 接管)
-    if urge_intensity > 0.6:
-        logger.info("post_urge_triggered", agent_id=agent_id, urge_type=urge_type, intensity=urge_intensity)
-        # TODO Phase 3: execute("post_decision", ...) → execute("post_generation", ...)
+    # Step 2: Post urge check
+    post_urge_threshold = float(yaml_config.flow.spontaneous_trigger_intensity)
+    if urge_intensity and urge_type and urge_intensity > post_urge_threshold:
+        await _step2_post_urge(agent, db, llm_caller, ctx, summary, urge_type, urge_intensity)
 
-    # Step 3: Bar selection (placeholder — Phase 3 接管)
-    # TODO Phase 3: execute("bar_selection", ...)
-    logger.info("bar_selection_placeholder", agent_id=agent_id)
+    # Step 3: Bar selection
+    bar_selection = await _step3_bar_selection(agent, db, llm_caller, ctx, summary)
 
-    # Step 4: Notification processing (placeholder — Phase 3 接管)
-    # TODO Phase 3: pull unread notifications, prioritize
+    # Step 4: Notification processing
+    await _step4_notifications(agent, db)
 
-    # Step 5: Browse & interact (placeholder — Phase 3 接管)
-    # TODO Phase 3: browse feed, reply decisions
+    # Step 5: Browse & interact
+    await _step5_browse_and_interact(agent, db, llm_caller, summary, bar_selection)
 
     # Step 6: Go offline
     await db.execute(
@@ -201,3 +203,355 @@ def _life_history_sample(agent: Agent) -> str:
     sample = random.sample(lh, min(3, len(lh)))
     lines = [f"- {e.get('age','?')}岁: {e.get('event','')}" for e in sample]
     return "\n".join(lines) if lines else "（无）"
+
+
+def _describe_interests(agent: Agent) -> str:
+    interests = agent.interests or {}
+    if isinstance(interests, dict):
+        cats = interests.get("categories", []) or interests.get("interests", []) or []
+        return "、".join(cats[:10]) if cats else "广泛"
+    if isinstance(interests, list):
+        return "、".join(interests[:10]) if interests else "广泛"
+    return "广泛"
+
+
+# ─── Step 2: Post urge ───
+
+
+async def _step2_post_urge(
+    agent: Agent,
+    db: AsyncSession,
+    llm_caller: Callable,
+    base_ctx: dict,
+    summary: str,
+    urge_type: str,
+    urge_intensity: float,
+) -> None:
+    """Check post urge and create post if will_post=true."""
+    agent_id = str(agent.id)
+
+    active_bars = await _get_active_bars_text(agent, db)
+
+    decision_ctx = {
+        **base_ctx,
+        "agent_name": agent.nickname,
+        "agent_personality": _describe_personality(agent),
+        "offline_summary": summary,
+        "urge_type": urge_type,
+        "urge_intensity": urge_intensity,
+        "today_active_bars": active_bars,
+    }
+
+    try:
+        result = await execute("post_decision", decision_ctx, llm_caller=llm_caller, agent_id=agent_id)
+    except Exception:
+        logger.exception("post_decision_error", agent_id=agent_id)
+        return
+
+    if result.status != "success" or not isinstance(result.parsed, dict):
+        return
+
+    if not result.parsed.get("will_post"):
+        logger.info("post_decision_skip", agent_id=agent_id)
+        return
+
+    target_bar = result.parsed.get("target_bar", "广场")
+    bar_description = target_bar
+
+    gen_ctx = {
+        **base_ctx,
+        "agent_name": agent.nickname,
+        "agent_age": str(agent.age),
+        "agent_occupation": agent.occupation or "未知",
+        "agent_personality": _describe_personality(agent),
+        "offline_summary": summary,
+        "urge_type": urge_type,
+        "urge_intensity": urge_intensity,
+        "target_bar": target_bar,
+        "bar_description": bar_description,
+    }
+
+    try:
+        gen_result = await execute("post_generation", gen_ctx, llm_caller=llm_caller, agent_id=agent_id)
+    except Exception:
+        logger.exception("post_generation_error", agent_id=agent_id)
+        return
+
+    if gen_result.status != "success" or not isinstance(gen_result.parsed, dict):
+        return
+
+    title = gen_result.parsed.get("title", "")
+    content = gen_result.parsed.get("content", "")
+    if not content.strip():
+        return
+
+    post = Post(
+        author_id=agent.id,
+        title=title[:200],
+        content=content,
+        urge_type=urge_type,
+    )
+    db.add(post)
+    await db.commit()
+
+    logger.info("post_created", agent_id=agent_id, post_id=str(post.id), urge_type=urge_type)
+
+    # Check spontaneous flow trigger
+    from app.jobs.flow_engine import (
+        FlowSessionStore,
+        check_spontaneous_flow_trigger,
+        FlowSession,
+    )
+
+    if await check_spontaneous_flow_trigger(agent_id, urge_type, urge_intensity):
+        max_rounds = random.randint(3, 6)
+        session = FlowSession(
+            session_id=f"spontaneous-{agent_id}-{datetime.now(timezone.utc).timestamp():.0f}",
+            agent_id=agent_id,
+            flow_type="spontaneous",
+            urge_type=urge_type,
+            max_rounds=max_rounds,
+        )
+        FlowSessionStore.start_session(session)
+        try:
+            await __import__("app.jobs.flow_engine", fromlist=["run_spontaneous_flow"]).run_spontaneous_flow(
+                agent, summary, urge_type, urge_intensity, session, db, llm_caller,
+            )
+        except Exception:
+            logger.exception("spontaneous_flow_error", agent_id=agent_id)
+
+
+# ─── Step 3: Bar selection ───
+
+
+async def _step3_bar_selection(
+    agent: Agent,
+    db: AsyncSession,
+    llm_caller: Callable,
+    base_ctx: dict,
+    summary: str,
+) -> dict:
+    """Select which bars to browse today."""
+    agent_id = str(agent.id)
+
+    joined_bars = await _get_joined_bars_text(agent, db)
+    trending_bars = await _get_trending_bars_text(agent, db)
+
+    bar_ctx = {
+        **base_ctx,
+        "agent_name": agent.nickname,
+        "agent_interests": _describe_interests(agent),
+        "joined_bars": joined_bars,
+        "trending_bars": trending_bars,
+        "offline_summary": summary,
+    }
+
+    try:
+        result = await execute("bar_selection", bar_ctx, llm_caller=llm_caller, agent_id=agent_id)
+    except Exception:
+        logger.exception("bar_selection_error", agent_id=agent_id)
+        return {"active_bars": [], "casual_bars": [], "skipped_bars": []}
+
+    if result.status == "success" and isinstance(result.parsed, dict):
+        logger.info("bar_selection_done", agent_id=agent_id,
+                    active=len(result.parsed.get("active_bars", [])),
+                    casual=len(result.parsed.get("casual_bars", [])))
+        return result.parsed
+
+    return {"active_bars": [], "casual_bars": [], "skipped_bars": []}
+
+
+# ─── Step 4: Notification processing ───
+
+
+async def _step4_notifications(agent: Agent, db: AsyncSession) -> None:
+    """Pull unread notifications, prioritize, mark as read."""
+    agent_id = str(agent.id)
+
+    result = await db.execute(
+        select(Notification)
+        .where(Notification.recipient_id == agent.id, Notification.is_read == False)  # noqa: E712
+        .order_by(Notification.priority.desc(), Notification.created_at.desc())
+        .limit(20)
+    )
+    notifications = result.scalars().all()
+
+    if not notifications:
+        return
+
+    high = sum(1 for n in notifications if n.priority == "high")
+    for n in notifications:
+        n.is_read = True
+    await db.commit()
+
+    logger.info("notifications_processed", agent_id=agent_id, total=len(notifications), high_priority=high)
+
+
+# ─── Step 5: Browse & interact ───
+
+
+async def _step5_browse_and_interact(
+    agent: Agent,
+    db: AsyncSession,
+    llm_caller: Callable,
+    summary: str,
+    bar_selection: dict,
+) -> None:
+    """Browse bar posts, filter, decide replies, generate replies."""
+    agent_id = str(agent.id)
+
+    from app.jobs.browse_filter import run_browse_filter
+    from app.jobs.reply_pipeline import decide_reply, generate_reply, count_today_replies
+    from app.jobs.self_balance import SelfBalanceTracker
+    from app.jobs.flow_engine import (
+        FlowSessionStore,
+        FlowSession,
+        check_interactive_flow_trigger,
+        run_interactive_flow_round,
+    )
+
+    active_bars = bar_selection.get("active_bars", [])
+    casual_bars = bar_selection.get("casual_bars", [])
+    all_bars_to_browse = (active_bars or []) + (casual_bars or [])
+
+    if not all_bars_to_browse:
+        logger.info("browse_no_bars", agent_id=agent_id)
+        return
+
+    daily_reply_count = await count_today_replies(agent, db)
+    max_daily_replies = getattr(agent.schedule, 'max_flow_per_day', 15) if agent.schedule else 15
+    balance_tracker = SelfBalanceTracker.for_agent(agent_id)
+
+    logger.info("browse_start", agent_id=agent_id, bars=len(all_bars_to_browse),
+                reply_count=daily_reply_count)
+
+    posts_browsed = 0
+    replies_made = 0
+
+    for bar_name in all_bars_to_browse:
+        # Fetch recent posts from this bar
+        posts = await _fetch_bar_posts(bar_name, db, limit=15)
+        if not posts:
+            continue
+
+        # Run browse filter
+        filter_results = await run_browse_filter(agent, posts, db, llm_caller)
+        passed_ids = {fr.post_id for fr in filter_results if fr.passed}
+
+        if not passed_ids:
+            continue
+
+        for post in posts:
+            if str(post.id) not in passed_ids:
+                continue
+            if daily_reply_count >= max_daily_replies:
+                logger.info("browse_reply_cap", agent_id=agent_id, count=daily_reply_count)
+                return
+
+            posts_browsed += 1
+
+            # Check if in active flow session
+            flow_session = FlowSessionStore.get_active(agent_id)
+            if flow_session and flow_session.flow_type == "interactive":
+                if str(post.id) != flow_session.post_id:
+                    continue
+                other_agent = post.author if post.author else None
+                reply = await run_interactive_flow_round(
+                    agent, post, other_agent, flow_session, db, llm_caller,
+                )
+                if reply:
+                    replies_made += 1
+                    daily_reply_count += 1
+                continue
+
+            # Normal reply pipeline
+            decision = await decide_reply(
+                agent, post, summary, db, llm_caller, balance_tracker,
+                daily_reply_count=daily_reply_count, max_daily_replies=max_daily_replies,
+            )
+
+            if decision.will_reply:
+                reply_result = await generate_reply(agent, post, decision, db, llm_caller)
+                if reply_result:
+                    replies_made += 1
+                    daily_reply_count += 1
+
+                    # Check if this triggers interactive flow
+                    if post.reply_count >= 2:
+                        try:
+                            is_flow = await check_interactive_flow_trigger(
+                                agent_id, post, reply_result.get("content", ""), "", llm_caller,
+                            )
+                            if is_flow and FlowSessionStore.can_start_session(agent_id):
+                                session = FlowSession(
+                                    session_id=f"interactive-{agent_id}-{datetime.now(timezone.utc).timestamp():.0f}",
+                                    agent_id=agent_id,
+                                    flow_type="interactive",
+                                    post_id=str(post.id),
+                                    other_agent_id=str(post.author_id),
+                                    max_rounds=int(yaml_config.flow.max_rounds_per_session),
+                                )
+                                FlowSessionStore.start_session(session)
+                        except Exception:
+                            pass
+
+    logger.info("browse_done", agent_id=agent_id, posts_browsed=posts_browsed, replies_made=replies_made)
+
+
+# ─── Helper queries ───
+
+
+async def _get_active_bars_text(agent: Agent, db: AsyncSession) -> str:
+    result = await db.execute(
+        select(Bar).join(BarMember, Bar.id == BarMember.bar_id)
+        .where(BarMember.agent_id == agent.id)
+        .limit(10)
+    )
+    bars = result.scalars().all()
+    if not bars:
+        return "（尚未加入任何吧）"
+    return "\n".join(f"- {b.name}: {b.description or ''}" for b in bars)
+
+
+async def _get_joined_bars_text(agent: Agent, db: AsyncSession) -> str:
+    result = await db.execute(
+        select(Bar).join(BarMember, Bar.id == BarMember.bar_id)
+        .where(BarMember.agent_id == agent.id)
+    )
+    bars = result.scalars().all()
+    if not bars:
+        return "（尚未加入任何吧）"
+    lines = [f"- {b.name}（{b.member_count or 0}人）: {b.description or ''}" for b in bars]
+    return "\n".join(lines)
+
+
+async def _get_trending_bars_text(agent: Agent, db: AsyncSession) -> str:
+    joined_subq = select(BarMember.bar_id).where(BarMember.agent_id == agent.id).subquery()
+    result = await db.execute(
+        select(Bar)
+        .where(Bar.id.notin_(select(joined_subq.c.bar_id)))
+        .order_by(Bar.member_count.desc())
+        .limit(10)
+    )
+    bars = result.scalars().all()
+    if not bars:
+        return "（无热门吧）"
+    lines = [f"- {b.name}（{b.member_count or 0}人）: {b.description or ''}" for b in bars]
+    return "\n".join(lines)
+
+
+async def _fetch_bar_posts(bar_name: str, db: AsyncSession, limit: int = 15) -> list[Post]:
+    result = await db.execute(
+        select(Bar).where(Bar.name == bar_name)
+    )
+    bar = result.scalar_one_or_none()
+    if bar is None:
+        return []
+
+    result = await db.execute(
+        select(Post)
+        .where(Post.bar_id == bar.id)
+        .order_by(Post.created_at.desc())
+        .limit(limit)
+    )
+    return list(result.scalars().all())

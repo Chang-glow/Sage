@@ -14,8 +14,12 @@ class FakeAgent:
         self.status = status
         self.age = age
         self.occupation = occupation
+        self.gender = "男"
+        self.education = "本科"
+        self.district = "平陵市"
         self.personality_vector = {"openness": 0.8}
         self.life_history = []
+        self.interests = {}
         self.chronotype = "normal"
         self.boarding = False
 
