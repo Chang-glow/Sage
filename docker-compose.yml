@@ -19,6 +19,8 @@ services:
     build: .
     ports:
       - "19175:19175"
+    environment:
+      PYTHONPATH: /app
     env_file:
       - .env
     depends_on:
@@ -32,6 +34,7 @@ services:
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
       - ./scripts:/app/scripts
+      - ./tests:/app/tests
 
 volumes:
   pgdata:

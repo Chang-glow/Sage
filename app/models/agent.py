@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Optional
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, func, text
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, func, text
 from sqlalchemy.dialects.postgresql import JSON, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -29,6 +29,9 @@ class Agent(Base):
     school_or_company: Mapped[Optional[str]] = mapped_column(String(200))
     boarding: Mapped[bool] = mapped_column(
         Boolean, server_default=text("false"), default=False
+    )
+    chronotype: Mapped[str] = mapped_column(
+        String(10), server_default=text("'normal'"), default="normal"
     )
     interests: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON)
     personality_vector: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON)
@@ -64,6 +67,9 @@ class Agent(Base):
     )
     schedule: Mapped[Optional[AgentSchedule]] = relationship(
         "AgentSchedule", back_populates="agent", uselist=False
+    )
+    daily_schedules: Mapped[list[AgentDailySchedule]] = relationship(
+        "AgentDailySchedule", back_populates="agent"
     )
 
 
@@ -107,3 +113,24 @@ class ActivityLog(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )
+
+
+class AgentDailySchedule(Base):
+    __tablename__ = "agent_daily_schedules"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    agent_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agents.id"), nullable=False, index=True
+    )
+    date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    timeline: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(JSON)
+    events: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    agent: Mapped[Agent] = relationship("Agent", back_populates="daily_schedules")

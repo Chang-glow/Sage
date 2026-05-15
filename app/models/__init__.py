@@ -5,7 +5,7 @@ class Base(DeclarativeBase):
     pass
 
 
-from app.models.agent import ActivityLog, Agent, AgentSchedule  # noqa: E402, F401
+from app.models.agent import ActivityLog, Agent, AgentDailySchedule, AgentSchedule  # noqa: E402, F401
 from app.models.bar import Bar, BarMember, BarModLog, BarRule, AgentBarLevel, Election  # noqa: E402, F401
 from app.models.external_topic import Topic  # noqa: E402, F401
 from app.models.notification import Notification  # noqa: E402, F401

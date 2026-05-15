@@ -31,6 +31,8 @@ scheduler:
   agent_online_timeout_seconds: 600 # 单次上线最大时长
   wake_probability_threshold: 0.5
   wake_random_delay_max_minutes: 15
+  daily_schedule_generation_hour: 0  # 午夜生成每日结构化日程
+  natural_max_online_minutes: 120     # 自然上线最大分钟数
 
 # ── 等级 ──
 level:

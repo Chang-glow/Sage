@@ -209,6 +209,7 @@ class AgentDraft:
     occupation: str = ""
     income_level: str = ""
     education: str = ""
+    chronotype: str = "normal"
     # Step 2
     candidate_interests: list[dict] = field(default_factory=list)
     # Step 3
@@ -253,6 +254,11 @@ def generate_hard_conditions() -> AgentDraft:
         draft.occupation = random.choice(_OCCUPATION_POOL)
 
     draft.income_level, draft.education = _lookup_income_edu(draft.age, draft.occupation)
+
+    draft.chronotype = random.choices(
+        ["early", "normal", "nightowl", "chaotic"],
+        weights=[0.15, 0.55, 0.25, 0.05],
+    )[0]
 
     return draft
 
@@ -512,6 +518,7 @@ async def _persist_agent(draft: AgentDraft, db_session) -> Agent:
         district=draft.district,
         school_or_company=draft.school_or_company,
         boarding=draft.boarding or False,
+        chronotype=draft.chronotype,
         interests=draft.interests,
         personality_vector=draft.personality_vector,
         life_history=draft.life_history,

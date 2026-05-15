@@ -40,7 +40,21 @@ async def lifespan(app: FastAPI):
     engine = create_async_engine(settings.database_url)
     app.state.db_session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
+    from app.jobs.scheduler import run_scheduler_loop
+
+    stop_event = asyncio.Event()
+    scheduler_task = asyncio.create_task(
+        run_scheduler_loop(app.state.db_session_factory, stop_event)
+    )
+
     yield
+
+    stop_event.set()
+    scheduler_task.cancel()
+    try:
+        await scheduler_task
+    except asyncio.CancelledError:
+        pass
 
     await engine.dispose()
     logger.info("server_stopping")
@@ -48,7 +62,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="夕照雅巷 (Sunny Graceful Alley)",
-    version="0.1.0",
+    version="0.5.0",
     lifespan=lifespan,
 )
 

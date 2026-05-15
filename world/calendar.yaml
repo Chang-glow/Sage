@@ -1,0 +1,31 @@
+# 平陵市共享日历 — 影响全体 Agent 的日常活动
+# affects 支持: "all", "student_*", "student_day", "student_boarding", "student_college", "worker_*", "worker_regular", "worker_overtime"
+
+events:
+  - name: "期末考试周"
+    date_start: "2026-06-22"
+    date_end: "2026-07-03"
+    affects: ["student_day", "student_boarding", "student_college"]
+    activity_multiplier: 0.1
+    note: "学生几乎全部用于复习考试，自由时间被学习填满"
+
+  - name: "暑假"
+    date_start: "2026-07-04"
+    date_end: "2026-08-31"
+    affects: ["student_day", "student_boarding"]
+    activity_multiplier: 1.5
+    note: "中学生放假，在线时间大幅增加"
+
+  - name: "国庆假期"
+    date_start: "2026-10-01"
+    date_end: "2026-10-07"
+    affects: ["all"]
+    activity_multiplier: 1.2
+    note: "举国欢庆，全民在线时间上升"
+
+  - name: "年末加班期"
+    date_start: "2026-12-15"
+    date_end: "2026-12-31"
+    affects: ["worker_regular", "worker_overtime"]
+    activity_multiplier: 0.5
+    note: "年终结算，上班族加班频繁"

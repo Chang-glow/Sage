@@ -1,0 +1,99 @@
+# 结构化日程模板 — 按身份类型组织
+# 每个模板包含按时间排列的 time block 列表，指定锚点时间、弹性漂移、是否空闲、方向词
+
+templates:
+  student_day:
+    label: "走读中学生"
+    desc: "工作日上学，早晚通勤，午休和晚间空闲"
+    blocks:
+      - {label: "早起通勤", time_start: "06:30", time_end: "07:30", flex: 15, is_free_time: true, direction: "上学路上"}
+      - {label: "早自习", time_start: "07:30", time_end: "08:00", flex: 5, is_free_time: false, direction: "晨读"}
+      - {label: "上午课程", time_start: "08:00", time_end: "11:50", flex: 10, is_free_time: false, direction: "课堂学习"}
+      - {label: "午休", time_start: "12:00", time_end: "13:30", flex: 20, is_free_time: true, direction: "午餐休息"}
+      - {label: "下午课程", time_start: "14:00", time_end: "17:30", flex: 10, is_free_time: false, direction: "课堂学习"}
+      - {label: "晚间自由", time_start: "18:30", time_end: "22:00", flex: 30, is_free_time: true, direction: "家庭作业/休闲"}
+      - {label: "睡觉", time_start: "22:30", time_end: "06:30", flex: 30, is_free_time: false, direction: "睡眠"}
+
+  student_boarding:
+    label: "住宿中学生"
+    desc: "周一到周五在校全封闭，仅午休和晚自习后空闲"
+    blocks:
+      - {label: "起床/早操", time_start: "06:00", time_end: "06:40", flex: 10, is_free_time: false, direction: "集体作息"}
+      - {label: "早自习", time_start: "06:50", time_end: "07:40", flex: 5, is_free_time: false, direction: "晨读"}
+      - {label: "上午课程", time_start: "08:00", time_end: "11:50", flex: 10, is_free_time: false, direction: "课堂学习"}
+      - {label: "午餐/午休", time_start: "12:00", time_end: "13:40", flex: 15, is_free_time: true, direction: "午餐午睡"}
+      - {label: "下午课程", time_start: "14:00", time_end: "17:30", flex: 10, is_free_time: false, direction: "课堂学习"}
+      - {label: "晚餐/自由", time_start: "17:40", time_end: "18:50", flex: 15, is_free_time: true, direction: "晚餐休息"}
+      - {label: "晚自习", time_start: "19:00", time_end: "21:30", flex: 10, is_free_time: false, direction: "自习"}
+      - {label: "睡前自由", time_start: "21:40", time_end: "22:30", flex: 15, is_free_time: true, direction: "宿舍休闲"}
+      - {label: "睡觉", time_start: "22:30", time_end: "06:00", flex: 15, is_free_time: false, direction: "睡眠"}
+
+  student_college:
+    label: "大学生"
+    desc: "课程不连续，碎片化空闲时段多"
+    blocks:
+      - {label: "上午时段", time_start: "08:00", time_end: "12:00", flex: 60, is_free_time: true, direction: "上课/自习/社团"}
+      - {label: "午间", time_start: "12:00", time_end: "14:00", flex: 30, is_free_time: true, direction: "午餐/休息"}
+      - {label: "下午时段", time_start: "14:00", time_end: "18:00", flex: 60, is_free_time: true, direction: "上课/自习/活动"}
+      - {label: "晚间", time_start: "18:00", time_end: "23:30", flex: 60, is_free_time: true, direction: "社交/娱乐/学习"}
+      - {label: "睡觉", time_start: "23:30", time_end: "08:00", flex: 60, is_free_time: false, direction: "睡眠"}
+
+  worker_regular:
+    label: "普通上班族"
+    desc: "朝九晚五，晚间和周末空闲"
+    blocks:
+      - {label: "早晨", time_start: "07:00", time_end: "08:30", flex: 20, is_free_time: true, direction: "起床/通勤"}
+      - {label: "上午工作", time_start: "09:00", time_end: "12:00", flex: 15, is_free_time: false, direction: "工作任务"}
+      - {label: "午休", time_start: "12:00", time_end: "13:30", flex: 20, is_free_time: true, direction: "午餐休息"}
+      - {label: "下午工作", time_start: "13:30", time_end: "18:00", flex: 15, is_free_time: false, direction: "工作任务"}
+      - {label: "晚间自由", time_start: "18:30", time_end: "23:00", flex: 30, is_free_time: true, direction: "家庭/社交/休闲"}
+      - {label: "睡觉", time_start: "23:00", time_end: "07:00", flex: 30, is_free_time: false, direction: "睡眠"}
+
+  worker_overtime:
+    label: "加班上班族"
+    desc: "晚间时间被加班压缩，自由时段短"
+    blocks:
+      - {label: "早晨", time_start: "07:00", time_end: "08:30", flex: 20, is_free_time: true, direction: "起床/通勤"}
+      - {label: "上午工作", time_start: "09:00", time_end: "12:00", flex: 15, is_free_time: false, direction: "工作任务"}
+      - {label: "午休", time_start: "12:00", time_end: "13:00", flex: 15, is_free_time: true, direction: "午餐"}
+      - {label: "下午工作", time_start: "13:00", time_end: "18:00", flex: 15, is_free_time: false, direction: "工作任务"}
+      - {label: "晚间加班", time_start: "18:30", time_end: "21:30", flex: 30, is_free_time: false, direction: "加班"}
+      - {label: "睡前碎片", time_start: "21:30", time_end: "23:30", flex: 20, is_free_time: true, direction: "短暂休闲"}
+      - {label: "睡觉", time_start: "23:30", time_end: "07:00", flex: 30, is_free_time: false, direction: "睡眠"}
+
+  freelancer:
+    label: "自由职业/个体户"
+    desc: "时间灵活，全天有碎片空闲"
+    blocks:
+      - {label: "上午", time_start: "09:00", time_end: "12:00", flex: 60, is_free_time: true, direction: "灵活工作/生活"}
+      - {label: "午间", time_start: "12:00", time_end: "14:00", flex: 30, is_free_time: true, direction: "午餐/休息"}
+      - {label: "下午", time_start: "14:00", time_end: "18:00", flex: 60, is_free_time: true, direction: "灵活工作/生活"}
+      - {label: "晚间", time_start: "18:00", time_end: "00:00", flex: 60, is_free_time: true, direction: "社交/接单/休闲"}
+      - {label: "睡觉", time_start: "00:00", time_end: "09:00", flex: 60, is_free_time: false, direction: "睡眠"}
+
+  middle_age:
+    label: "中年轻量"
+    desc: "晚间有固定空闲，午休可能午睡"
+    blocks:
+      - {label: "早晨", time_start: "06:00", time_end: "08:00", flex: 20, is_free_time: true, direction: "晨间活动/通勤"}
+      - {label: "上午工作", time_start: "08:00", time_end: "12:00", flex: 15, is_free_time: false, direction: "工作"}
+      - {label: "午休", time_start: "12:00", time_end: "14:00", flex: 20, is_free_time: true, direction: "午餐/午睡"}
+      - {label: "下午工作", time_start: "14:00", time_end: "18:00", flex: 15, is_free_time: false, direction: "工作"}
+      - {label: "晚间", time_start: "18:30", time_end: "22:00", flex: 30, is_free_time: true, direction: "家庭/散步/休闲"}
+      - {label: "睡觉", time_start: "22:00", time_end: "06:00", flex: 30, is_free_time: false, direction: "睡眠"}
+
+  unemployed:
+    label: "待业/无固定职业"
+    desc: "全天自由，但无事可做也可能不上线"
+    blocks:
+      - {label: "上午", time_start: "09:00", time_end: "12:00", flex: 90, is_free_time: true, direction: "闲散/找工作"}
+      - {label: "下午", time_start: "12:00", time_end: "18:00", flex: 90, is_free_time: true, direction: "闲散/刷手机"}
+      - {label: "晚间", time_start: "18:00", time_end: "01:00", flex: 90, is_free_time: true, direction: "熬夜/看剧/打游戏"}
+      - {label: "睡觉", time_start: "01:00", time_end: "09:00", flex: 60, is_free_time: false, direction: "睡眠"}
+
+# chronotype 偏移量 (分钟)，正值 = 延后
+chronotype_offsets:
+  early: -45
+  normal: 0
+  nightowl: 90
+  chaotic_range: [-60, 60]
