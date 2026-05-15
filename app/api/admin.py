@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import secrets
+from collections.abc import AsyncGenerator
 from typing import Optional
 from uuid import UUID
 
@@ -28,8 +29,9 @@ def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
         raise HTTPException(status_code=401, detail="未授权")
 
 
-async def get_db(request: Request) -> AsyncSession:
-    return request.app.state.db_session_factory()
+async def get_db(request: Request) -> AsyncGenerator[AsyncSession, None]:
+    async with request.app.state.db_session_factory() as session:
+        yield session
 
 
 @router.post("/deploy")

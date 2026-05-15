@@ -72,14 +72,39 @@ async def execute(
     try:
         raw_response = await caller(prompt, model, skill_id=skill_id)
     except Exception as e:
-        logger.error("llm_call_failed", skill_id=skill_id, error=str(e))
-        return SkillResult(
-            skill_id=skill_id,
-            model=model,
-            duration_ms=(time.monotonic() - t0) * 1000,
-            status="llm_failure",
-            error=str(e),
-        )
+        logger.warning("llm_call_failed", skill_id=skill_id, model=model, error=str(e))
+        # 主力模型失败 → 用便宜模型重试一次
+        if "主力" in skill.model_type:
+            cheap_model = _resolve_model("便宜")
+            if cheap_model != model:
+                try:
+                    raw_response = await caller(prompt, cheap_model, skill_id=skill_id)
+                    model = cheap_model
+                except Exception as e2:
+                    logger.error("llm_fallback_failed", skill_id=skill_id, model=cheap_model, error=str(e2))
+                    return SkillResult(
+                        skill_id=skill_id,
+                        model=model,
+                        duration_ms=(time.monotonic() - t0) * 1000,
+                        status="llm_failure",
+                        error=str(e),
+                    )
+            else:
+                return SkillResult(
+                    skill_id=skill_id,
+                    model=model,
+                    duration_ms=(time.monotonic() - t0) * 1000,
+                    status="llm_failure",
+                    error=str(e),
+                )
+        else:
+            return SkillResult(
+                skill_id=skill_id,
+                model=model,
+                duration_ms=(time.monotonic() - t0) * 1000,
+                status="llm_failure",
+                error=str(e),
+            )
 
     try:
         parsed = _parse_response(raw_response, skill.output_format, skill.output_schema)

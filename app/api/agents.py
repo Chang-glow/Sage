@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
@@ -35,8 +36,9 @@ class AgentResponse(BaseModel):
     created_at: datetime | None
 
 
-async def get_db(request: Request) -> AsyncSession:
-    return request.app.state.db_session_factory()
+async def get_db(request: Request) -> AsyncGenerator[AsyncSession, None]:
+    async with request.app.state.db_session_factory() as session:
+        yield session
 
 
 async def _check_daily_cap(db: AsyncSession) -> bool:

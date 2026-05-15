@@ -433,7 +433,7 @@ async def validate_agent(draft: AgentDraft, llm_caller: Callable) -> bool:
         f"是否有明显矛盾？仅回复 YES 或 NO。"
     )
     try:
-        resp = await llm_caller(prompt, "inclusionAI/Ling-mini-2.0")
+        resp = await llm_caller(prompt, yaml_config.llm.default_cheap_model)
         return "NO" in resp.upper()
     except Exception as e:
         logger.warning("validate_agent_error", error=str(e))
@@ -486,6 +486,15 @@ async def _create_manual_agent(db_session, manual_input: dict) -> Agent:
     draft.gender = manual_input.get("gender", "")
     draft.interests = manual_input.get("interests", [])
     draft.schedule_raw = manual_input.get("schedule", {})
+
+    if draft.age < 18:
+        draft.occupation = "学生"
+    elif draft.age <= 22:
+        draft.occupation = random.choices(["学生", "初入职场"], weights=[0.6, 0.4])[0]
+    else:
+        draft.occupation = random.choice(_OCCUPATION_POOL)
+
+    draft.income_level, draft.education = _lookup_income_edu(draft.age, draft.occupation)
     draft = set_notification_defaults(draft)
 
     agent = await _persist_agent(draft, db_session)

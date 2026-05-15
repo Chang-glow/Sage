@@ -56,12 +56,20 @@ def reset_token_counters() -> None:
     _token_usage["_global"] = 0
 
 
-@retry(
-    retry=retry_if_exception(_is_retryable),
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(min=1, max=10, multiplier=2),
-    reraise=True,
-)
+def _build_retry():
+    return retry(
+        retry=retry_if_exception(_is_retryable),
+        stop=stop_after_attempt(yaml_config.llm.max_retries),
+        wait=wait_exponential(
+            min=yaml_config.llm.retry_min_wait_seconds,
+            max=yaml_config.llm.retry_max_wait_seconds,
+            multiplier=yaml_config.llm.retry_multiplier,
+        ),
+        reraise=True,
+    )
+
+
+@_build_retry()
 async def _call_provider(
     prompt: str,
     model: str,
@@ -98,6 +106,44 @@ async def _call_provider(
     return content, prompt_tokens, completion_tokens
 
 
+@_build_retry()
+async def _call_deepseek(
+    prompt: str,
+    model: str,
+    api_key: str,
+    timeout: float = 120.0,
+) -> tuple[str, int, int]:
+    logger.info("llm_call_start", model=model, provider="deepseek", prompt_len=len(prompt))
+    async with httpx.AsyncClient(timeout=httpx.Timeout(timeout)) as client:
+        resp = await client.post(
+            f"{settings.deepseek_base_url}/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.7,
+                "extra_body": {"thinking": {"type": "enabled"}},
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    content = data["choices"][0]["message"]["content"]
+    usage = data.get("usage", {})
+    prompt_tokens = usage.get("prompt_tokens", 0)
+    completion_tokens = usage.get("completion_tokens", 0)
+    logger.info(
+        "llm_call_success",
+        model=model,
+        provider="deepseek",
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+    )
+    return content, prompt_tokens, completion_tokens
+
+
 async def call_llm(
     prompt: str,
     model: str,
@@ -112,12 +158,22 @@ async def call_llm(
                 f"Token limit exceeded for agent={agent_id or 'global'}"
             )
 
-        content, pt, ct = await _call_provider(
-            prompt=prompt,
-            model=model,
-            base_url=settings.siliconflow_base_url,
-            api_key=settings.siliconflow_api_key,
-        )
+        is_deepseek = model in yaml_config.llm.deepseek_models
+        if is_deepseek:
+            content, pt, ct = await _call_deepseek(
+                prompt=prompt,
+                model=model,
+                api_key=settings.deepseek_api_key,
+                timeout=yaml_config.llm.main_timeout,
+            )
+        else:
+            content, pt, ct = await _call_provider(
+                prompt=prompt,
+                model=model,
+                base_url=settings.siliconflow_base_url,
+                api_key=settings.siliconflow_api_key,
+                timeout=yaml_config.llm.cheap_timeout,
+            )
 
         _track_tokens(agent_id, pt, ct)
         return content
@@ -144,10 +200,9 @@ def _default_mock_responses() -> dict[str, str]:
 
 def create_llm_caller(use_mock: bool | None = None) -> Callable:
     if use_mock is None:
-        use_mock = not (
-            bool(settings.siliconflow_api_key)
-            and settings.siliconflow_api_key != "sk-xxxxxxxx"
-        )
+        has_siliconflow = bool(settings.siliconflow_api_key) and settings.siliconflow_api_key != "sk-xxxxxxxx"
+        has_deepseek = bool(settings.deepseek_api_key) and settings.deepseek_api_key != "sk-xxxxxxxx"
+        use_mock = not (has_siliconflow or has_deepseek)
     if use_mock:
         mock = MockLLM()
         return mock.call
