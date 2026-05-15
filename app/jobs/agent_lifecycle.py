@@ -258,26 +258,29 @@ async def _step2_post_urge(
     target_bar = result.parsed.get("target_bar", "广场")
     bar_description = target_bar
 
-    # Check post-level threshold for the target bar
+    # Resolve target bar
+    target_bar_obj = None
     if target_bar != "广场":
         bar_result = await db.execute(
             select(Bar).where(Bar.name == target_bar)
         )
-        bar = bar_result.scalar_one_or_none()
-        if bar is not None:
-            threshold = getattr(bar, "post_level_threshold", 4)
-            level_result = await db.execute(
-                select(AgentBarLevel).where(
-                    AgentBarLevel.agent_id == agent.id,
-                    AgentBarLevel.bar_id == bar.id,
-                )
+        target_bar_obj = bar_result.scalar_one_or_none()
+
+    # Check post-level threshold for the target bar
+    if target_bar_obj is not None:
+        threshold = getattr(target_bar_obj, "post_level_threshold", 4)
+        level_result = await db.execute(
+            select(AgentBarLevel).where(
+                AgentBarLevel.agent_id == agent.id,
+                AgentBarLevel.bar_id == target_bar_obj.id,
             )
-            agent_level_record = level_result.scalar_one_or_none()
-            current_level = agent_level_record.level if agent_level_record else 1
-            if current_level < threshold:
-                logger.info("post_blocked_by_level", agent_id=agent_id,
-                            bar=target_bar, level=current_level, threshold=threshold)
-                return
+        )
+        agent_level_record = level_result.scalar_one_or_none()
+        current_level = agent_level_record.level if agent_level_record else 1
+        if current_level < threshold:
+            logger.info("post_blocked_by_level", agent_id=agent_id,
+                        bar=target_bar, level=current_level, threshold=threshold)
+            return
 
     gen_ctx = {
         **base_ctx,
@@ -306,16 +309,30 @@ async def _step2_post_urge(
     if not content.strip():
         return
 
+    # Process media placeholders
+    from app.skills.skill_utils import process_media_placeholders
+    content = await process_media_placeholders(content, llm_caller, agent_id)
+
     post = Post(
         author_id=agent.id,
         title=title[:200],
         content=content,
         urge_type=urge_type,
+        bar_id=target_bar_obj.id if target_bar_obj else None,
     )
     db.add(post)
     await db.commit()
 
     logger.info("post_created", agent_id=agent_id, post_id=str(post.id), urge_type=urge_type)
+
+    # Track slang usage
+    from app.jobs.meme_engine import use_slang_in_text
+    await use_slang_in_text(agent.id, content, db)
+
+    # Level: add post XP
+    from app.jobs.level_engine import add_xp
+    if target_bar_obj is not None:
+        await add_xp(agent.id, target_bar_obj.id, "post", db)
 
     # Check spontaneous flow trigger
     from app.jobs.flow_engine import (

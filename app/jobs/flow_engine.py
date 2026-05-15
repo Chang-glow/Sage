@@ -228,6 +228,27 @@ async def run_interactive_flow_round(
             update(Post).where(Post.id == post.id).values(reply_count=Post.reply_count + 1)
         )
         await db.commit()
+
+        # Track slang usage & adjust social relationship
+        from app.jobs.meme_engine import use_slang_in_text
+        from app.jobs.social_engine import adjust_after_reply
+        await use_slang_in_text(agent.id, reply_content, db)
+        post_author_id = getattr(post, "author_id", None)
+        if post_author_id and str(post_author_id) != agent_id:
+            await adjust_after_reply(agent.id, post_author_id, tone, db)
+
+        # Notifications
+        from app.jobs.notification_engine import notify_reply, notify_mentions
+        if post_author_id and str(post_author_id) != agent_id:
+            await notify_reply(post_author_id, agent.id, str(post.id), db)
+        await notify_mentions(reply_content, agent.id, str(post.id), db)
+
+        # Level: add reply XP
+        from app.jobs.level_engine import add_xp
+        bar_id = getattr(post, "bar_id", None)
+        if bar_id:
+            await add_xp(agent.id, bar_id, "reply", db)
+
         return {"reply_id": str(reply.id), "content": reply_content, "tone": tone}
 
     return None
@@ -301,6 +322,9 @@ async def run_spontaneous_flow(
         is_final = result.parsed.get("is_final_round", False)
 
         if content.strip():
+            from app.skills.skill_utils import process_media_placeholders
+            content = await process_media_placeholders(content, llm_caller, agent_id)
+
             post = Post(
                 author_id=agent.id,
                 title=title[:200],
@@ -315,6 +339,10 @@ async def run_spontaneous_flow(
                 "content": content,
             })
             previous_rounds_text += f"\n第{round_num}轮: {title}\n{content[:200]}..."
+
+            from app.jobs.meme_engine import use_slang_in_text
+            await use_slang_in_text(agent.id, content, db)
+
             logger.info("spontaneous_flow_post", agent_id=agent_id, round=round_num, post_id=str(post.id))
 
         if is_final or round_num >= session.max_rounds:

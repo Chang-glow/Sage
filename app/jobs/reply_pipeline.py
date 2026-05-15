@@ -374,6 +374,10 @@ async def generate_reply(
         logger.warning("reply_generation_empty", agent_id=agent_id)
         return None
 
+    # Process media placeholders
+    from app.skills.skill_utils import process_media_placeholders
+    content = await process_media_placeholders(content, llm_caller, agent_id)
+
     # 5. Insert Reply record
     reply = Reply(
         post_id=post.id,
@@ -391,6 +395,28 @@ async def generate_reply(
 
     logger.info("reply_generated", agent_id=agent_id, post_id=str(post.id),
                 reply_id=str(reply.id), tone=decision.suggested_tone)
+
+    # Track slang usage
+    from app.jobs.meme_engine import use_slang_in_text
+    await use_slang_in_text(agent.id, content, db)
+
+    # Adjust social relationship
+    from app.jobs.social_engine import adjust_after_reply
+    post_author_id = getattr(post, "author_id", None)
+    if post_author_id and str(post_author_id) != agent_id:
+        await adjust_after_reply(agent.id, post_author_id, decision.suggested_tone, db)
+
+    # Notifications
+    from app.jobs.notification_engine import notify_reply, notify_mentions
+    if post_author_id and str(post_author_id) != agent_id:
+        await notify_reply(post_author_id, agent.id, str(post.id), db)
+    await notify_mentions(content, agent.id, str(post.id), db)
+
+    # Level: add reply XP
+    from app.jobs.level_engine import add_xp
+    bar_id = getattr(post, "bar_id", None)
+    if bar_id:
+        await add_xp(agent.id, bar_id, "reply", db)
 
     return {
         "reply_id": str(reply.id),

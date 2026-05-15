@@ -83,6 +83,34 @@ def build_post_context(post) -> dict[str, Any]:
     }
 
 
+import re
+from typing import Callable
+
+_MEDIA_PLACEHOLDER_RE = re.compile(r"\{\{media:\s*(image|emoji),\s*([^}]+)\}\}")
+
+
+async def process_media_placeholders(
+    text: str,
+    llm_caller: Callable,
+    agent_id: str,
+) -> str:
+    """If text contains {{media:...}} placeholders, call media_generation skill to convert them."""
+    if not _MEDIA_PLACEHOLDER_RE.search(text):
+        return text
+
+    from app.skills.executor import execute
+
+    try:
+        result = await execute("media_generation", {"raw_text": text}, llm_caller=llm_caller, agent_id=agent_id)
+    except Exception:
+        return text
+
+    if result.status == "success" and isinstance(result.parsed, dict):
+        processed = result.parsed.get("processed_text", text)
+        return processed if processed else text
+    return text
+
+
 async def build_relationship_context(
     agent_id: uuid.UUID,
     target_id: uuid.UUID,
