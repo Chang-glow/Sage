@@ -325,9 +325,9 @@ async def _step2_post_urge(
 
     logger.info("post_created", agent_id=agent_id, post_id=str(post.id), urge_type=urge_type)
 
-    # Track slang usage
-    from app.jobs.meme_engine import use_slang_in_text
-    await use_slang_in_text(agent.id, content, db)
+    # Track slang usage (via plugin manager)
+    from app.plugins import plugin_manager
+    await plugin_manager.post_content(str(agent.id), content, db)
 
     # Level: add post XP
     from app.jobs.level_engine import add_xp

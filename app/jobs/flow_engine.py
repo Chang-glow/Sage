@@ -230,9 +230,9 @@ async def run_interactive_flow_round(
         await db.commit()
 
         # Track slang usage & adjust social relationship
-        from app.jobs.meme_engine import use_slang_in_text
+        from app.plugins import plugin_manager
         from app.jobs.social_engine import adjust_after_reply
-        await use_slang_in_text(agent.id, reply_content, db)
+        await plugin_manager.post_content(str(agent.id), reply_content, db)
         post_author_id = getattr(post, "author_id", None)
         if post_author_id and str(post_author_id) != agent_id:
             await adjust_after_reply(agent.id, post_author_id, tone, db)
@@ -340,8 +340,8 @@ async def run_spontaneous_flow(
             })
             previous_rounds_text += f"\n第{round_num}轮: {title}\n{content[:200]}..."
 
-            from app.jobs.meme_engine import use_slang_in_text
-            await use_slang_in_text(agent.id, content, db)
+            from app.plugins import plugin_manager
+            await plugin_manager.post_content(str(agent.id), content, db)
 
             logger.info("spontaneous_flow_post", agent_id=agent_id, round=round_num, post_id=str(post.id))
 

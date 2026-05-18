@@ -324,20 +324,10 @@ async def generate_reply(
         for r in recent_replies
     ) if recent_replies else "（暂无回复）"
 
-    # 2. Fetch agent's personal slangs
-    personal_slangs = ""
-    try:
-        from app.models.slang import AgentSlang
-        slang_result = await db.execute(
-            select(AgentSlang).where(AgentSlang.agent_id == agent.id)
-        )
-        slang_entries = slang_result.scalars().all()
-        if slang_entries:
-            personal_slangs = "、".join(
-                getattr(e, 'slug', str(e)) for e in slang_entries[:5]
-            )
-    except Exception:
-        personal_slangs = ""
+    # 2. Fetch agent's personal slangs (via plugin manager)
+    from app.plugins import plugin_manager
+    plugin_ctx = await plugin_manager.gather_context(str(agent.id), db)
+    personal_slangs = plugin_ctx.get("personal_slangs", "")
 
     # 3. Build relationship context
     rel_ctx = await build_relationship_context(
@@ -396,9 +386,9 @@ async def generate_reply(
     logger.info("reply_generated", agent_id=agent_id, post_id=str(post.id),
                 reply_id=str(reply.id), tone=decision.suggested_tone)
 
-    # Track slang usage
-    from app.jobs.meme_engine import use_slang_in_text
-    await use_slang_in_text(agent.id, content, db)
+    # Track slang usage (via plugin manager)
+    from app.plugins import plugin_manager
+    await plugin_manager.post_content(str(agent.id), content, db)
 
     # Adjust social relationship
     from app.jobs.social_engine import adjust_after_reply

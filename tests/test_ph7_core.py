@@ -169,6 +169,49 @@ def test_slang_affinity_decay_math():
     assert max(0.0, 0.02 - 0.05) == 0.0
 
 
+def test_plugin_manager_disabled_noop():
+    """When meme.enabled is false (default), post_content is a no-op."""
+    from app.plugins.base import PluginManager
+    import asyncio
+
+    async def run():
+        pm = PluginManager()
+        mock_db = AsyncMock()
+        # Force init with no plugins (simulating meme.enabled=false)
+        pm._init()
+        assert len(pm._plugins) == 0
+        # post_content should not error
+        await pm.post_content(str(uuid.uuid4()), "test content", mock_db)
+        # gather_context should return empty dict
+        ctx = await pm.gather_context(str(uuid.uuid4()), mock_db)
+        assert ctx == {}
+
+    asyncio.run(run())
+
+
+def test_plugin_manager_post_content_calls_plugin():
+    """When a plugin is registered, post_content calls on_content_created."""
+    from app.plugins.base import PluginManager
+    import asyncio
+
+    async def run():
+        pm = PluginManager()
+        mock_plugin = MagicMock()
+        mock_plugin.on_content_created = AsyncMock()
+        mock_plugin.get_context_data = AsyncMock(return_value={"test_key": "test_val"})
+        pm._plugins = [mock_plugin]
+        pm._initialized = True
+
+        mock_db = AsyncMock()
+        await pm.post_content("agent-1", "hello", mock_db)
+        mock_plugin.on_content_created.assert_called_once_with("agent-1", "hello", mock_db)
+
+        ctx = await pm.gather_context("agent-1", mock_db)
+        assert ctx == {"test_key": "test_val"}
+
+    asyncio.run(run())
+
+
 # ─── Social engine tests ───
 
 
@@ -473,7 +516,7 @@ def test_generate_reply_calls_all_engines():
                 with patch("app.skills.skill_utils.process_media_placeholders") as mock_media:
                     mock_media.return_value = "测试回复内容 @test_user"
 
-                    with patch("app.jobs.meme_engine.use_slang_in_text") as mock_slang:
+                    with patch("app.plugins.plugin_manager.post_content", new_callable=AsyncMock) as mock_slang:
                         with patch("app.jobs.social_engine.adjust_after_reply") as mock_social:
                             with patch("app.jobs.notification_engine.notify_reply") as mock_notify_r:
                                 with patch("app.jobs.notification_engine.notify_mentions") as mock_notify_m:

@@ -1,3 +1,7 @@
+# ── 梗系统 ──
+meme:
+  enabled: false  # 梗系统总开关，默认关闭
+
 # ── 记忆系统 ──
 memory:
   max_short_fragments: 150
