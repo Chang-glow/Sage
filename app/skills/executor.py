@@ -4,7 +4,7 @@ import json
 import logging
 import re
 import time
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 import structlog
 
@@ -12,6 +12,9 @@ from app.config import config as yaml_config
 from app.skills.llm_manager import call_llm
 from app.skills.registry import registry
 from app.skills.skill_utils import SkillResult
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = structlog.get_logger()
 
@@ -45,6 +48,7 @@ async def execute(
     *,
     llm_caller=None,
     agent_id: str | None = None,
+    db: AsyncSession | None = None,
 ) -> SkillResult:
     t0 = time.monotonic()
 
@@ -65,6 +69,14 @@ async def execute(
             status="render_failure",
             error=f"Prompt render failed: {e}",
         )
+
+    # ── World book injection ──
+    if db is not None:
+        try:
+            from app.engine.world_book_engine import assemble_prompt
+            prompt = await assemble_prompt(prompt, context, db)
+        except Exception as e:
+            logger.warning("world_book_assemble_failed", skill_id=skill_id, error=str(e))
 
     model = _resolve_model(skill.model_type)
     caller = llm_caller or call_llm
@@ -108,6 +120,42 @@ async def execute(
 
     try:
         parsed = _parse_response(raw_response, skill.output_format, skill.output_schema)
+
+        # Extract world book management fields from parsed response
+        wb_entry = None
+        wb_remove = None
+        if isinstance(parsed, dict):
+            wb_entry = parsed.pop("world_book_entry", None)
+            wb_remove = parsed.pop("remove_world_book_entry", None)
+
+            # Persist world book mutations if db available
+            if db is not None:
+                if wb_entry and isinstance(wb_entry, dict):
+                    try:
+                        from app.engine.world_book_engine import register_entry
+                        await register_entry(wb_entry, db)
+                        await db.commit()
+                        logger.info(
+                            "world_book_entry_registered",
+                            skill_id=skill_id, title=wb_entry.get("title", ""),
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "world_book_register_failed",
+                            skill_id=skill_id, error=str(e),
+                        )
+                if wb_remove and isinstance(wb_remove, str):
+                    try:
+                        from app.engine.world_book_engine import remove_entry
+                        await remove_entry(wb_remove, db)
+                        await db.commit()
+                        logger.info("world_book_entry_removed", skill_id=skill_id, entry_id=wb_remove)
+                    except Exception as e:
+                        logger.warning(
+                            "world_book_remove_failed",
+                            skill_id=skill_id, error=str(e),
+                        )
+
         return SkillResult(
             skill_id=skill_id,
             raw_response=raw_response,
@@ -115,6 +163,8 @@ async def execute(
             model=model,
             duration_ms=(time.monotonic() - t0) * 1000,
             status="success",
+            world_book_entry=wb_entry,
+            remove_world_book_entry=wb_remove,
         )
     except Exception as e:
         logger.warning("parse_failed", skill_id=skill_id, raw=raw_response[:200])

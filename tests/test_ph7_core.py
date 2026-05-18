@@ -24,6 +24,9 @@ class FakeAgent:
         self.life_history = []
         self.schedule = None
         self.chronotype = "normal"
+        self.persona_prompt = None
+        self.income_level = None
+        self.school_or_company = None
         for k, v in kwargs.items():
             if k not in ("personality_vector", "interests"):
                 setattr(self, k, v)

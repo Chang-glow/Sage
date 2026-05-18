@@ -175,6 +175,7 @@ async def generate_daily_schedule(agent: Agent, today: date, db: AsyncSession, l
                         ctx,
                         llm_caller=llm_caller,
                         agent_id=str(agent.id),
+                        db=db,
                     )
                     if result.status == "success" and isinstance(result.parsed, dict):
                         evt = result.parsed

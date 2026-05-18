@@ -22,6 +22,9 @@ class FakeAgent:
         self.interests = {}
         self.chronotype = "normal"
         self.boarding = False
+        self.persona_prompt = None
+        self.income_level = None
+        self.school_or_company = None
 
 
 class FakeSchedule:

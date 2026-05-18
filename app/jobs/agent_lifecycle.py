@@ -147,7 +147,7 @@ async def _run_online_flow_inner(
     ctx["recent_interactions"] = "暂无新互动"
 
     try:
-        result = await execute("offline_summary", ctx, llm_caller=llm_caller, agent_id=agent_id)
+        result = await execute("offline_summary", ctx, llm_caller=llm_caller, agent_id=agent_id, db=db)
         if result.status == "success" and isinstance(result.parsed, dict):
             summary = result.parsed.get("summary", "")
             urge_type = result.parsed.get("urge_type")
@@ -243,7 +243,7 @@ async def _step2_post_urge(
     }
 
     try:
-        result = await execute("post_decision", decision_ctx, llm_caller=llm_caller, agent_id=agent_id)
+        result = await execute("post_decision", decision_ctx, llm_caller=llm_caller, agent_id=agent_id, db=db)
     except Exception:
         logger.exception("post_decision_error", agent_id=agent_id)
         return
@@ -296,7 +296,7 @@ async def _step2_post_urge(
     }
 
     try:
-        gen_result = await execute("post_generation", gen_ctx, llm_caller=llm_caller, agent_id=agent_id)
+        gen_result = await execute("post_generation", gen_ctx, llm_caller=llm_caller, agent_id=agent_id, db=db)
     except Exception:
         logger.exception("post_generation_error", agent_id=agent_id)
         return
@@ -385,7 +385,7 @@ async def _step3_bar_selection(
     }
 
     try:
-        result = await execute("bar_selection", bar_ctx, llm_caller=llm_caller, agent_id=agent_id)
+        result = await execute("bar_selection", bar_ctx, llm_caller=llm_caller, agent_id=agent_id, db=db)
     except Exception:
         logger.exception("bar_selection_error", agent_id=agent_id)
         return {"active_bars": [], "casual_bars": [], "skipped_bars": []}
@@ -518,7 +518,7 @@ async def _step5_browse_and_interact(
                     if post.reply_count >= 2:
                         try:
                             is_flow = await check_interactive_flow_trigger(
-                                agent_id, post, reply_result.get("content", ""), "", llm_caller,
+                                agent_id, post, reply_result.get("content", ""), "", llm_caller, db,
                             )
                             if is_flow and FlowSessionStore.can_start_session(agent_id):
                                 session = FlowSession(

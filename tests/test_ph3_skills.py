@@ -217,6 +217,10 @@ def test_build_agent_context_basic():
         district = "平陵市"
         personality_vector = {"peacemaker": 0.8, "openness": 0.7, "hothead": 0.3}
         interests = {"categories": ["游戏", "音乐", "电影"]}
+        persona_prompt = None
+        income_level = None
+        school_or_company = None
+        chronotype = "normal"
 
     ctx = build_agent_context(FakeAgent)
     assert ctx["agent_name"] == "测试"
@@ -238,6 +242,10 @@ def test_build_agent_context_none_fields():
         district = None
         personality_vector = None
         interests = None
+        persona_prompt = None
+        income_level = None
+        school_or_company = None
+        chronotype = "normal"
 
     ctx = build_agent_context(FakeAgent)
     assert ctx["agent_occupation"] == "未知"
@@ -258,6 +266,10 @@ def test_build_agent_context_empty_personality():
         district = ""
         personality_vector = {}
         interests = {"categories": []}
+        persona_prompt = None
+        income_level = None
+        school_or_company = None
+        chronotype = "normal"
 
     ctx = build_agent_context(FakeAgent)
     assert ctx["agent_personality"] == "普通"

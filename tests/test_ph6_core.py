@@ -25,6 +25,9 @@ class FakeAgent:
         self.life_history = []
         self.schedule = None
         self.chronotype = "normal"
+        self.persona_prompt = None
+        self.income_level = None
+        self.school_or_company = None
         for k, v in kwargs.items():
             if k not in ("personality_vector", "interests"):
                 setattr(self, k, v)
@@ -156,7 +159,8 @@ def test_skill_topic_match_empty_text():
 
     async def run():
         mock_llm = AsyncMock()
-        score = await _skill_topic_match("", "something", "post_vs_interests", mock_llm, "agent-1", 0.5)
+        mock_db = AsyncMock()
+        score = await _skill_topic_match("", "something", "post_vs_interests", mock_llm, "agent-1", 0.5, mock_db)
         assert score == (True, None)
 
     asyncio.run(run())
@@ -175,9 +179,10 @@ def test_skill_topic_match_with_response():
             mock_result.parsed = {"similarity_score": 0.85, "is_same_topic": True}
             mock_exec.return_value = mock_result
 
+            mock_db = AsyncMock()
             passed, score = await _skill_topic_match(
                 "游戏推荐", "大家有什么好玩的游戏吗", "post_vs_interests",
-                mock_llm, "agent-1", 0.3,
+                mock_llm, "agent-1", 0.3, mock_db,
             )
             assert passed is True
             assert score == 0.85
@@ -198,9 +203,10 @@ def test_skill_topic_match_below_threshold():
             mock_result.parsed = {"similarity_score": 0.2, "is_same_topic": False}
             mock_exec.return_value = mock_result
 
+            mock_db = AsyncMock()
             passed, score = await _skill_topic_match(
                 "足球比赛", "编程入门教程", "post_vs_interests",
-                mock_llm, "agent-1", 0.5,
+                mock_llm, "agent-1", 0.5, mock_db,
             )
             assert passed is False
             assert score == 0.2
@@ -224,7 +230,8 @@ def test_skill_topic_match_identical():
             mock_result.parsed = {"similarity_score": 0.95}
             mock_exec.return_value = mock_result
 
-            score = await _skill_topic_match("hello world", "hello world", mock_llm, "agent-1")
+            mock_db = AsyncMock()
+            score = await _skill_topic_match("hello world", "hello world", mock_llm, "agent-1", mock_db)
             assert score == 0.95
 
     asyncio.run(run())
@@ -236,9 +243,10 @@ def test_skill_topic_match_empty():
 
     async def run():
         mock_llm = AsyncMock()
-        score = await _skill_topic_match("", "hello", mock_llm, "agent-1")
+        mock_db = AsyncMock()
+        score = await _skill_topic_match("", "hello", mock_llm, "agent-1", mock_db)
         assert score == 0.0
-        score2 = await _skill_topic_match("hello", "", mock_llm, "agent-1")
+        score2 = await _skill_topic_match("hello", "", mock_llm, "agent-1", mock_db)
         assert score2 == 0.0
 
     asyncio.run(run())
@@ -257,7 +265,7 @@ def test_skill_topic_match_different():
             mock_result.parsed = {"similarity_score": 0.1}
             mock_exec.return_value = mock_result
 
-            score = await _skill_topic_match("hello world", "goodbye mars", mock_llm, "agent-1")
+            score = await _skill_topic_match("hello world", "goodbye mars", mock_llm, "agent-1", MagicMock())
             assert score < 0.5
 
     asyncio.run(run())
@@ -302,7 +310,7 @@ def test_interactive_trigger_above_threshold():
             mock_exec.return_value = mock_result
 
             result = await check_interactive_flow_trigger(
-                "test-agent-3", post, "same text", "same text", mock_llm,
+                "test-agent-3", post, "same text", "same text", mock_llm, MagicMock(),
             )
             assert result is True
 
@@ -327,7 +335,7 @@ def test_interactive_trigger_below_threshold():
             mock_exec.return_value = mock_result
 
             result = await check_interactive_flow_trigger(
-                "test-agent-4", post, "讨论游戏", "分享美食推荐", mock_llm,
+                "test-agent-4", post, "讨论游戏", "分享美食推荐", mock_llm, MagicMock(),
             )
             assert result is False
 

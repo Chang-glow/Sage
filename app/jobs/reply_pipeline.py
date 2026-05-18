@@ -276,7 +276,7 @@ async def decide_reply(
         ctx["post_author"] = post.author.nickname
 
     # 5. Call reply_decision skill
-    result = await execute("reply_decision", ctx, llm_caller=llm_caller, agent_id=agent_id)
+    result = await execute("reply_decision", ctx, llm_caller=llm_caller, agent_id=agent_id, db=db)
 
     will_reply = False
     reason = "skill_call_failed"
@@ -353,7 +353,7 @@ async def generate_reply(
         ctx["post_author"] = post.author.nickname
 
     # 4. Call reply_generation skill
-    result = await execute("reply_generation", ctx, llm_caller=llm_caller, agent_id=agent_id)
+    result = await execute("reply_generation", ctx, llm_caller=llm_caller, agent_id=agent_id, db=db)
 
     if result.status != "success" or not isinstance(result.parsed, dict):
         logger.warning("reply_generation_failed", agent_id=agent_id, status=result.status)

@@ -26,6 +26,7 @@ async def _skill_topic_match(
     text_b: str,
     llm_caller: Callable,
     agent_id: str,
+    db,
 ) -> float:
     """Call topic_similarity skill and return similarity score."""
     if not text_a.strip() or not text_b.strip():
@@ -38,7 +39,7 @@ async def _skill_topic_match(
     }
 
     try:
-        result = await execute("topic_similarity", ctx, llm_caller=llm_caller, agent_id=agent_id)
+        result = await execute("topic_similarity", ctx, llm_caller=llm_caller, agent_id=agent_id, db=db)
     except Exception:
         logger.warning("flow_topic_similarity_failed", agent_id=agent_id)
         return 0.0
@@ -136,6 +137,7 @@ async def check_interactive_flow_trigger(
     last_reply_content: str,
     previous_reply_content: str,
     llm_caller: Callable,
+    db,
 ) -> bool:
     """Detect if interactive flow should start.
 
@@ -151,7 +153,7 @@ async def check_interactive_flow_trigger(
     if not last_reply_content or not previous_reply_content:
         return False
 
-    sim = await _skill_topic_match(last_reply_content, previous_reply_content, llm_caller, agent_id)
+    sim = await _skill_topic_match(last_reply_content, previous_reply_content, llm_caller, agent_id, db)
     threshold = float(_FLOW_CONFIG.interactive_trigger_similarity)
     return sim > threshold
 
@@ -190,7 +192,7 @@ async def run_interactive_flow_round(
         "max_rounds": str(session.max_rounds),
     }
 
-    result = await execute("flow_interaction", ctx, llm_caller=llm_caller, agent_id=agent_id)
+    result = await execute("flow_interaction", ctx, llm_caller=llm_caller, agent_id=agent_id, db=db)
 
     if result.status != "success" or not isinstance(result.parsed, dict):
         return None
@@ -312,7 +314,7 @@ async def run_spontaneous_flow(
             "max_rounds": str(session.max_rounds),
         }
 
-        result = await execute("flow_creation", ctx, llm_caller=llm_caller, agent_id=agent_id)
+        result = await execute("flow_creation", ctx, llm_caller=llm_caller, agent_id=agent_id, db=db)
 
         if result.status != "success" or not isinstance(result.parsed, dict):
             break

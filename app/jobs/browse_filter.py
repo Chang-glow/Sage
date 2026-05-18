@@ -62,6 +62,7 @@ async def _skill_topic_match(
     llm_caller: Callable,
     agent_id: str,
     threshold: float,
+    db,
 ) -> tuple[bool, float | None]:
     """Call topic_similarity skill to judge if two texts are about the same topic."""
     from app.skills.executor import execute
@@ -76,7 +77,7 @@ async def _skill_topic_match(
     }
 
     try:
-        result = await execute("topic_similarity", ctx, llm_caller=llm_caller, agent_id=agent_id)
+        result = await execute("topic_similarity", ctx, llm_caller=llm_caller, agent_id=agent_id, db=db)
     except Exception:
         logger.warning("topic_similarity_call_failed", agent_id=agent_id)
         return True, None  # graceful degradation
@@ -135,7 +136,7 @@ async def run_browse_filter(
         post_text = (post.title or "") + " " + (post.content or "")
         passed, sim = await _skill_topic_match(
             interest_text, post_text, "post_vs_interests",
-            llm_caller, agent_id_str, threshold,
+            llm_caller, agent_id_str, threshold, db,
         )
 
         reason = "passed" if passed else "low_similarity"

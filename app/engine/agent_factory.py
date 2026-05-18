@@ -550,4 +550,24 @@ async def _persist_agent(draft: AgentDraft, db_session) -> Agent:
         age=agent.age,
         occupation=agent.occupation,
     )
+
+    # Generate persona prompt via persona_summary skill
+    try:
+        from app.skills.skill_utils import build_agent_context, build_memory_context
+        from app.skills.executor import execute
+
+        base_ctx = build_agent_context(agent)
+        mem_ctx = build_memory_context(agent, top_n=5)
+        persona_ctx = {**base_ctx, **mem_ctx}
+        persona_ctx["agent_bio"] = getattr(draft, "bio", "")
+
+        result = await execute("persona_summary", persona_ctx, db=db_session)
+        if result.status == "success" and isinstance(result.parsed, dict):
+            agent.persona_prompt = result.parsed.get("persona_prompt", "")
+            db_session.add(agent)
+            await db_session.flush()
+            logger.info("persona_prompt_generated", agent_id=str(agent.id))
+    except Exception as e:
+        logger.warning("persona_summary_failed", agent_id=str(agent.id), error=str(e))
+
     return agent
