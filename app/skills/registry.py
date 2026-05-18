@@ -26,7 +26,7 @@ def _parse_skillmd(path: Path) -> SkillDefinition | None:
 
     m = _TITLE_RE.match(lines[0].strip())
     if not m:
-        logger.warning("skill_parse_bad_title", path=str(path), first_line=lines[0])
+        logger.warning("skill_parse_bad_title path=%s first_line=%s", str(path), lines[0])
         return None
 
     name, skill_id = m.group(1).strip(), m.group(2).strip()
