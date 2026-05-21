@@ -17,7 +17,7 @@ from app.models.notification import Notification
 from app.models.post import Post, Reply
 from app.engine.browse_hooks import browse_hook_registry
 from app.skills.executor import execute
-from app.skills.skill_utils import build_agent_context
+from app.skills.skill_utils import build_agent_context, build_post_context, build_relationship_context
 
 logger = structlog.get_logger()
 
@@ -599,3 +599,179 @@ async def _fetch_bar_posts(bar_name: str, db: AsyncSession, limit: int = 15) -> 
         .limit(limit)
     )
     return list(result.scalars().all())
+
+
+# ═══════════════════════════════════════════════════
+# 0.8.2: Browse hooks — like / bookmark / follow
+# ═══════════════════════════════════════════════════
+
+
+async def _count_today_likes(agent, db: AsyncSession) -> int:
+    """Count how many likes this agent gave today."""
+    from app.models.social import Like
+
+    today = date.today()
+    result = await db.execute(
+        select(Like).where(
+            Like.agent_id == agent.id,
+            Like.created_at >= datetime(today.year, today.month, today.day, tzinfo=timezone.utc),
+        )
+    )
+    return len(result.scalars().all())
+
+
+async def _like_hook(agent, post, decision, reply_result, db, llm_caller) -> None:
+    """BrowseHook priority=50: decide whether to like a browsed post."""
+    if decision is None or decision.will_reply:
+        return
+
+    agent_id = str(agent.id)
+    max_likes = int(getattr(yaml_config.level, "max_likes_per_day", 10))
+    today_likes = await _count_today_likes(agent, db)
+    if today_likes >= max_likes:
+        return
+
+    rel_ctx = await build_relationship_context(agent.id, post.author_id, db)
+    ctx = {
+        **build_agent_context(agent),
+        **build_post_context(post),
+        "relationship_intimacy": str(rel_ctx.get("relationship_intimacy", 0)),
+        "today_like_count": str(today_likes),
+    }
+
+    try:
+        result = await execute("like_decision", ctx, llm_caller=llm_caller, agent_id=agent_id, db=db)
+    except Exception:
+        logger.warning("like_decision_failed", agent_id=agent_id)
+        return
+
+    if result.status != "success" or not isinstance(result.parsed, dict):
+        return
+    if not result.parsed.get("will_like"):
+        return
+
+    # Create Like record
+    from app.models.social import Like
+    like = Like(agent_id=agent.id, post_id=post.id)
+    db.add(like)
+    await db.commit()
+
+    # Social + notification + XP
+    from app.jobs.social_engine import adjust_after_like
+    from app.jobs.notification_engine import notify_like
+    from app.jobs.level_engine import add_xp
+
+    await adjust_after_like(agent.id, post.author_id, db)
+    await notify_like(post.author_id, agent.id, str(post.id), db)
+    # add_xp requires bar_id — use post's bar
+    bar_id = None
+    if post.bar and hasattr(post.bar, "id"):
+        bar_id = post.bar.id
+    if bar_id:
+        await add_xp(agent.id, bar_id, "liked", db)
+
+    logger.info("like_created", agent_id=agent_id, post_id=str(post.id))
+
+
+async def _bookmark_hook(agent, post, decision, reply_result, db, llm_caller) -> None:
+    """BrowseHook priority=60: decide whether to bookmark a browsed post."""
+    if decision is None:
+        return
+
+    # Check if already bookmarked
+    from app.models.social import Bookmark as BookmarkModel
+    existing = await db.execute(
+        select(BookmarkModel).where(
+            BookmarkModel.agent_id == agent.id,
+            BookmarkModel.post_id == post.id,
+        )
+    )
+    if existing.scalar_one_or_none() is not None:
+        return
+
+    agent_id = str(agent.id)
+    ctx = {
+        **build_agent_context(agent),
+        **build_post_context(post),
+        "already_bookmarked": "否",
+    }
+
+    try:
+        result = await execute("bookmark_decision", ctx, llm_caller=llm_caller, agent_id=agent_id, db=db)
+    except Exception:
+        logger.warning("bookmark_decision_failed", agent_id=agent_id)
+        return
+
+    if result.status != "success" or not isinstance(result.parsed, dict):
+        return
+    if not result.parsed.get("will_bookmark"):
+        return
+
+    bookmark = BookmarkModel(agent_id=agent.id, post_id=post.id)
+    db.add(bookmark)
+    await db.commit()
+    logger.info("bookmark_created", agent_id=agent_id, post_id=str(post.id))
+
+
+async def _follow_hook(agent, post, decision, reply_result, db, llm_caller) -> None:
+    """BrowseHook priority=70: decide whether to follow after replying."""
+    if reply_result is None:
+        return
+
+    # Check if already following
+    from app.models.social import Follow as FollowModel
+    existing = await db.execute(
+        select(FollowModel).where(
+            FollowModel.follower_id == agent.id,
+            FollowModel.followed_id == post.author_id,
+        )
+    )
+    if existing.scalar_one_or_none() is not None:
+        return
+
+    agent_id = str(agent.id)
+    # Get target agent's interests
+    target_interests = "未知"
+    if post.author:
+        target_interests = getattr(post.author, "interests", "未知") or "未知"
+        if isinstance(target_interests, dict):
+            cats = target_interests.get("categories", []) or target_interests.get("interests", []) or []
+            target_interests = "、".join(cats[:5]) if cats else "未知"
+
+    rel_ctx = await build_relationship_context(agent.id, post.author_id, db)
+    ctx = {
+        **build_agent_context(agent),
+        "target_agent_name": post.author.nickname if post.author else "未知",
+        "target_interests": target_interests,
+        "interaction_quality": "深度互动" if reply_result else "浅层互动",
+        "already_following": "否",
+    }
+
+    try:
+        result = await execute("follow_decision", ctx, llm_caller=llm_caller, agent_id=agent_id, db=db)
+    except Exception:
+        logger.warning("follow_decision_failed", agent_id=agent_id)
+        return
+
+    if result.status != "success" or not isinstance(result.parsed, dict):
+        return
+    if not result.parsed.get("will_follow"):
+        return
+
+    follow = FollowModel(follower_id=agent.id, followed_id=post.author_id)
+    db.add(follow)
+    await db.commit()
+
+    from app.jobs.social_engine import adjust_after_follow
+    from app.jobs.notification_engine import notify_follow
+
+    await adjust_after_follow(agent.id, post.author_id, db)
+    await notify_follow(post.author_id, agent.id, db)
+
+    logger.info("follow_created", agent_id=agent_id, target_id=str(post.author_id))
+
+
+# Register hooks at module level — runs once on import
+browse_hook_registry.register("like", _like_hook, priority=50)
+browse_hook_registry.register("bookmark", _bookmark_hook, priority=60)
+browse_hook_registry.register("follow", _follow_hook, priority=70)

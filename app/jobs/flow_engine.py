@@ -211,13 +211,16 @@ async def run_interactive_flow_round(
         FlowSessionStore.increment_no_desire(agent_id)
 
     # Check exit conditions
+    flow_ended = False
     exit_no_desire = int(_FLOW_CONFIG.exit_rounds_no_desire)
     if session.consecutive_no_desire >= exit_no_desire:
         logger.info("flow_exit_no_desire", agent_id=agent_id, consecutive=session.consecutive_no_desire)
         FlowSessionStore.end_session(agent_id)
+        flow_ended = True
     elif session.round >= session.max_rounds:
         logger.info("flow_exit_max_rounds", agent_id=agent_id, rounds=session.round)
         FlowSessionStore.end_session(agent_id)
+        flow_ended = True
 
     if reply_content.strip():
         reply = Reply(
@@ -250,6 +253,14 @@ async def run_interactive_flow_round(
         bar_id = getattr(post, "bar_id", None)
         if bar_id:
             await add_xp(agent.id, bar_id, "reply", db)
+
+        # Flow ended: call follow_hook directly (doesn't go through BrowseHook loop)
+        if flow_ended:
+            try:
+                from app.jobs.agent_lifecycle import _follow_hook
+                await _follow_hook(agent, post, None, {"content": reply_content}, db, llm_caller)
+            except Exception:
+                pass
 
         return {"reply_id": str(reply.id), "content": reply_content, "tone": tone}
 
