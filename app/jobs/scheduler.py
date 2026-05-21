@@ -22,10 +22,9 @@ _SCHEDULES_GENERATED_DAYS: set[str] = set()
 
 async def decay_slangs(db, llm_caller) -> None:
     """Daily task: decay personal_affinity for slangs not used recently."""
-    try:
-        if not yaml_config.slang.enabled:
-            return
-    except AttributeError:
+    from app.engine.feature_flags import plugin_registry
+
+    if not plugin_registry.is_enabled("slang"):
         return
 
     from datetime import timedelta

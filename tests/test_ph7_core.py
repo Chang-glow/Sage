@@ -173,19 +173,21 @@ def test_slang_affinity_decay_math():
 
 
 def test_plugin_manager_disabled_noop():
-    """When meme.enabled is false (default), post_content is a no-op."""
+    """When meme feature flag is off, plugin registered but not called at runtime."""
+    from unittest.mock import patch
     from app.plugins.base import PluginManager
     import asyncio
 
     async def run():
         pm = PluginManager()
         mock_db = AsyncMock()
-        # Force init with no plugins (simulating meme.enabled=false)
         pm._init()
-        assert len(pm._plugins) == 0
-        # post_content should not error
-        await pm.post_content(str(uuid.uuid4()), "test content", mock_db)
-        # gather_context should return empty dict
+        # MemePlugin always registered; enabled check at call time
+        assert len(pm._plugins) == 1
+        # With feature flag off (default), on_content_created not called
+        with patch.object(pm._plugins[0], "on_content_created") as mock_on:
+            await pm.post_content(str(uuid.uuid4()), "test content", mock_db)
+            mock_on.assert_not_called()
         ctx = await pm.gather_context(str(uuid.uuid4()), mock_db)
         assert ctx == {}
 

@@ -773,10 +773,9 @@ async def _follow_hook(agent, post, decision, reply_result, db, llm_caller) -> N
 
 async def _slang_hook(agent, post, decision, reply_result, db, llm_caller):
     """Learn new slangs from post content during browsing — priority=80."""
-    try:
-        if not yaml_config.slang.enabled:
-            return
-    except AttributeError:
+    from app.engine.feature_flags import plugin_registry
+
+    if not plugin_registry.is_enabled("slang"):
         return
 
     if decision is None:

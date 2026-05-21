@@ -652,8 +652,8 @@ def test_slang_hook_registered():
 
 
 def test_slang_disabled_by_default():
-    """slang functions return early when config.slang.enabled is False (default)."""
-    from unittest.mock import AsyncMock, MagicMock, patch
+    """slang functions return early when feature flag is off (default from config)."""
+    from unittest.mock import AsyncMock, MagicMock
 
     agent = _make_mock_agent()
     post = _make_mock_post()
@@ -664,34 +664,26 @@ def test_slang_disabled_by_default():
         mock_db = AsyncMock()
         mock_llm = MagicMock()
 
-        # _slang_hook should return early when slang.enabled=False
-        with patch("app.jobs.agent_lifecycle.yaml_config") as mock_cfg:
-            mock_cfg.slang.enabled = False
-            from app.jobs.agent_lifecycle import _slang_hook
-            await _slang_hook(agent, post, decision, None, mock_db, mock_llm)
-            # No DB interaction because config is off
-            assert mock_db.execute.call_count == 0
+        # _slang_hook returns early (registry default is False from config)
+        from app.jobs.agent_lifecycle import _slang_hook
+        await _slang_hook(agent, post, decision, None, mock_db, mock_llm)
+        assert mock_db.execute.call_count == 0
 
-        # decay_slangs should return early when slang.enabled=False
+        # decay_slangs returns early
         mock_db2 = AsyncMock()
-        with patch("app.jobs.scheduler.yaml_config") as mock_cfg2:
-            mock_cfg2.slang.enabled = False
-            from app.jobs.scheduler import decay_slangs
-            await decay_slangs(mock_db2, MagicMock())
-            assert mock_db2.execute.call_count == 0
+        from app.jobs.scheduler import decay_slangs
+        await decay_slangs(mock_db2, MagicMock())
+        assert mock_db2.execute.call_count == 0
 
-        # prelearn_slangs should return draft unchanged when slang.enabled=False
-        from app.engine.agent_factory import AgentDraft
+        # prelearn_slangs returns draft unchanged
+        from app.engine.agent_factory import AgentDraft, prelearn_slangs
         draft = AgentDraft()
         draft.nickname = "测试"
         mock_db3 = AsyncMock()
-        with patch("app.engine.agent_factory.yaml_config") as mock_cfg3:
-            mock_cfg3.slang.enabled = False
-            from app.engine.agent_factory import prelearn_slangs
-            result = await prelearn_slangs(draft, mock_llm, mock_db3)
-            assert result is draft
-            assert result.slang_slugs == []
-            assert mock_db3.execute.call_count == 0
+        result = await prelearn_slangs(draft, mock_llm, mock_db3)
+        assert result is draft
+        assert result.slang_slugs == []
+        assert mock_db3.execute.call_count == 0
 
     asyncio.run(_run())
 
@@ -720,8 +712,7 @@ def test_prelearn_slangs_with_active_slangs():
         mock_result.scalars.return_value.all.return_value = [slang1, slang2]
         mock_db.execute.return_value = mock_result
 
-        with patch("app.engine.agent_factory.yaml_config") as mock_cfg:
-            mock_cfg.slang.enabled = True
+        with patch("app.engine.feature_flags.PluginRegistry.is_enabled", return_value=True):
             with patch("app.skills.executor.execute") as mock_exec:
                 mock_exec_result = MagicMock()
                 mock_exec_result.status = "success"
@@ -760,8 +751,7 @@ def test_prelearn_slangs_empty_pool():
         mock_result.scalars.return_value.all.return_value = []
         mock_db.execute.return_value = mock_result
 
-        with patch("app.engine.agent_factory.yaml_config") as mock_cfg:
-            mock_cfg.slang.enabled = True
+        with patch("app.engine.feature_flags.PluginRegistry.is_enabled", return_value=True):
             from app.engine.agent_factory import prelearn_slangs
             result = await prelearn_slangs(draft, MagicMock(), mock_db)
 
@@ -805,8 +795,7 @@ def test_slang_learning_during_browse():
 
         mock_db.execute = mock_execute
 
-        with patch("app.jobs.agent_lifecycle.yaml_config") as mock_cfg:
-            mock_cfg.slang.enabled = True
+        with patch("app.engine.feature_flags.PluginRegistry.is_enabled", return_value=True):
             with patch("app.jobs.agent_lifecycle.execute") as mock_exec:
                 mock_exec_result = MagicMock()
                 mock_exec_result.status = "success"
@@ -860,8 +849,7 @@ def test_slang_learning_skips_known():
 
         mock_db.execute = mock_execute
 
-        with patch("app.jobs.agent_lifecycle.yaml_config") as mock_cfg:
-            mock_cfg.slang.enabled = True
+        with patch("app.engine.feature_flags.PluginRegistry.is_enabled", return_value=True):
             with patch("app.jobs.agent_lifecycle.execute") as mock_exec:
                 from app.jobs.agent_lifecycle import _slang_hook
                 await _slang_hook(agent, post, decision, None, mock_db, mock_llm)
@@ -881,8 +869,7 @@ def test_slang_hook_skips_when_decision_none():
         from unittest.mock import AsyncMock, patch
         mock_db = AsyncMock()
         mock_llm = MagicMock()
-        with patch("app.jobs.agent_lifecycle.yaml_config") as mock_cfg:
-            mock_cfg.slang.enabled = True
+        with patch("app.engine.feature_flags.PluginRegistry.is_enabled", return_value=True):
             from app.jobs.agent_lifecycle import _slang_hook
             await _slang_hook(agent, post, None, None, mock_db, mock_llm)
             # No DB interaction should happen
@@ -925,8 +912,7 @@ def test_decay_slangs_reduces_affinity():
         mock_result.scalars.return_value.all.return_value = [fresh, stale]
         mock_db.execute.return_value = mock_result
 
-        with patch("app.jobs.scheduler.yaml_config") as mock_cfg:
-            mock_cfg.slang.enabled = True
+        with patch("app.engine.feature_flags.PluginRegistry.is_enabled", return_value=True):
             from app.jobs.scheduler import decay_slangs
             await decay_slangs(mock_db, MagicMock())
 
@@ -964,8 +950,7 @@ def test_decay_slangs_floor():
         mock_result.scalars.return_value.all.return_value = [minimal]
         mock_db.execute.return_value = mock_result
 
-        with patch("app.jobs.scheduler.yaml_config") as mock_cfg:
-            mock_cfg.slang.enabled = True
+        with patch("app.engine.feature_flags.PluginRegistry.is_enabled", return_value=True):
             from app.jobs.scheduler import decay_slangs
             await decay_slangs(mock_db, MagicMock())
 

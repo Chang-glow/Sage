@@ -13,11 +13,8 @@ class MemePlugin:
 
     @property
     def enabled(self) -> bool:
-        from app.config import config
-        try:
-            return bool(config.meme.enabled)
-        except AttributeError:
-            return False
+        from app.engine.feature_flags import plugin_registry
+        return plugin_registry.is_enabled("meme")
 
     async def on_content_created(self, agent_id: str, content: str, db: "AsyncSession") -> None:
         """内容创建后扫描梗使用并更新好感度."""
