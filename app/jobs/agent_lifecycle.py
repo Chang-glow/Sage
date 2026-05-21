@@ -15,6 +15,7 @@ from app.models.agent import ActivityLog, Agent, AgentDailySchedule
 from app.models.bar import AgentBarLevel, Bar, BarMember
 from app.models.notification import Notification
 from app.models.post import Post, Reply
+from app.engine.browse_hooks import browse_hook_registry
 from app.skills.executor import execute
 from app.skills.skill_utils import build_agent_context
 
@@ -500,6 +501,7 @@ async def _step5_browse_and_interact(
                 if reply:
                     replies_made += 1
                     daily_reply_count += 1
+                await browse_hook_registry.iterate(agent, post, None, reply, db, llm_caller)
                 continue
 
             # Normal reply pipeline
@@ -532,6 +534,10 @@ async def _step5_browse_and_interact(
                                 FlowSessionStore.start_session(session)
                         except Exception:
                             pass
+
+            # Run post-browse hooks (like, bookmark, follow, etc.)
+            reply_result_for_hook = reply_result if decision.will_reply and reply_result else None
+            await browse_hook_registry.iterate(agent, post, decision, reply_result_for_hook, db, llm_caller)
 
     logger.info("browse_done", agent_id=agent_id, posts_browsed=posts_browsed, replies_made=replies_made)
 

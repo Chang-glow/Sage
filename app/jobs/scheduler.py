@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import config as yaml_config
+from app.engine.daily_tasks import daily_task_registry
 from app.jobs.agent_lifecycle import run_online_flow, should_wake
 from app.jobs.daily_schedule import generate_all_daily_schedules
 from app.models.agent import Agent, AgentDailySchedule
@@ -18,6 +19,14 @@ from app.skills.llm_manager import create_llm_caller
 logger = structlog.get_logger()
 
 _SCHEDULES_GENERATED_DAYS: set[str] = set()
+
+# Register daily schedule generation as a daily task
+daily_task_registry.register(
+    "generate_daily_schedules",
+    generate_all_daily_schedules,
+    hour=yaml_config.scheduler.daily_schedule_generation_hour,
+    minute=0,
+)
 
 
 async def run_scheduler_loop(
@@ -63,30 +72,29 @@ async def run_scheduler_loop(
 
 
 async def _maybe_generate_schedules(db, llm_caller: Callable) -> None:
-    today_str = str(date.today())
-    if today_str in _SCHEDULES_GENERATED_DAYS:
-        return
-
-    # Check if it's the right hour (midnight UTC+8 = 16:00 UTC)
+    """Run daily tasks due at the current hour:minute via DailyTaskRegistry."""
     now = datetime.now(timezone.utc)
     local_hour = (now.hour + 8) % 24
-    target_hour = yaml_config.scheduler.daily_schedule_generation_hour
-    if local_hour != target_hour:
+    local_minute = now.minute
+
+    due_tasks = daily_task_registry.get_due(local_hour, local_minute)
+    if not due_tasks:
         return
 
-    # Check if any agent needs a schedule
-    existing = await db.execute(select(AgentDailySchedule).where(AgentDailySchedule.date == date.today()).limit(1))
-    if existing.scalar_one_or_none() is not None:
-        # At least one agent has today's schedule; assume all done
-        _SCHEDULES_GENERATED_DAYS.add(today_str)
-        return
+    for task_name, task_fn in due_tasks:
+        today_str = str(date.today())
+        dedup_key = f"{today_str}:{task_name}"
+        if dedup_key in _SCHEDULES_GENERATED_DAYS:
+            continue
 
-    logger.info("scheduler_generating_daily_schedules", date=today_str)
-    count = await generate_all_daily_schedules(db, llm_caller)
-    if count > 0:
-        await db.commit()
-        logger.info("scheduler_daily_schedules_done", count=count, date=today_str)
-    _SCHEDULES_GENERATED_DAYS.add(today_str)
+        try:
+            logger.info("daily_task_start", task_name=task_name, hour=local_hour, minute=local_minute)
+            await task_fn(db, llm_caller)
+            await db.commit()
+            logger.info("daily_task_done", task_name=task_name)
+        except Exception:
+            logger.exception("daily_task_failed", task_name=task_name)
+        _SCHEDULES_GENERATED_DAYS.add(dedup_key)
 
 
 async def _scan_wakeable_agents(db) -> list[Agent]:

@@ -1,5 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import structlog
 from fastapi import FastAPI
@@ -32,10 +33,13 @@ async def lifespan(app: FastAPI):
         logger.warning("config_validation_missing", missing=missing)
     logger.info("server_starting", host=config.server.host, port=config.server.port)
 
-    from app.skills.registry import registry
+    from app.skills.registry import registry, watch_skills_dir
 
     count = registry.load_all()
     logger.info("skills_loaded", count=count)
+
+    skills_dir = Path(__file__).resolve().parent / "skills"
+    watch_task = asyncio.create_task(watch_skills_dir(skills_dir))
 
     engine = create_async_engine(settings.database_url)
     app.state.db_session_factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -50,9 +54,14 @@ async def lifespan(app: FastAPI):
     yield
 
     stop_event.set()
+    watch_task.cancel()
     scheduler_task.cancel()
     try:
         await scheduler_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await watch_task
     except asyncio.CancelledError:
         pass
 

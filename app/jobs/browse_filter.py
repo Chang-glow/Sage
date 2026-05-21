@@ -13,6 +13,11 @@ if TYPE_CHECKING:
 logger = structlog.get_logger()
 
 _BLOCKED_KEYWORDS: set[str] = set()
+try:
+    from app.config import config as _yaml_config
+    _BLOCKED_KEYWORDS = set(getattr(_yaml_config.browse, "blocked_keywords", []))
+except Exception:
+    pass
 
 
 @dataclass

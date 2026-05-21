@@ -238,22 +238,6 @@ def _format_life_history(agent: Agent) -> str:
     return "\n".join(lines) if lines else "（无）"
 
 
-def should_generate_daily_schedules() -> bool:
-    """检查是否到达午夜生成时间（每小时检查一次，仅在目标小时执行）"""
-    now = datetime.now(timezone.utc)
-    target_hour = yaml_config.scheduler.daily_schedule_generation_hour
-    # 转换为 UTC+8
-    local_hour = (now.hour + 8) % 24
-    return local_hour == target_hour and now.minute < yaml_config.scheduler.scan_interval_minutes
-
-
-def has_todays_schedule(db_session_factory) -> bool:
-    """Purely synchronous check for whether schedules exist today.
-    This can't be called from the scheduler loop (it needs an event loop),
-    so we use it as a helper inside the async context."""
-    return True  # The actual check happens inside run_scheduler_loop
-
-
 async def generate_all_daily_schedules(db: AsyncSession, llm_caller) -> int:
     today = date.today()
     result = await db.execute(

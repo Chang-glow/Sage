@@ -93,6 +93,7 @@ browse:
   search_max_per_cooldown: 3
   dm_max_per_day: 3 # 私聊每日发起上限
   dm_outgoing_threshold: 0.25 # 外向值 × 开放度 阈值
+  blocked_keywords: [] # 浏览过滤屏蔽关键词，默认空
 
 # ── 服务器 ──
 server:

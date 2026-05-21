@@ -122,7 +122,12 @@ def build_world_book_context(
     relationship_context: dict[str, Any] | None = None,
     extra_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Assemble scanning context for world book trigger matching."""
+    """Assemble scanning context for world book trigger matching.
+
+    NOTE: Currently not called in production code. Reserved for future use
+    when world book scanning needs structured context assembly before
+    passing to assemble_prompt().
+    """
     parts: list[str] = []
 
     if post_context:

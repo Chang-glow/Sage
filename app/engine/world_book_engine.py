@@ -221,7 +221,10 @@ async def assemble_prompt(
         return skill_prompt
 
     # First-pass scan and match — scan both prompt text and context
-    context_text = skill_prompt + " " + _extract_text_from_context(context)
+    # scan_depth limits how much context text we scan (chars per depth unit)
+    max_scan_chars = cfg.get("scan_depth", 10) * 200
+    raw_text = skill_prompt + " " + _extract_text_from_context(context)
+    context_text = raw_text[:max_scan_chars]
     matched = _match_entries(all_entries, context_text, context)
     visited: set[UUID] = {e.id for e in matched}
 
@@ -254,8 +257,20 @@ async def assemble_prompt(
     return _inject_entries(skill_prompt, trimmed)
 
 
-async def register_entry(data: dict[str, Any], db: AsyncSession) -> WorldBookEntry:
+async def register_entry(data: dict[str, Any], db: AsyncSession) -> WorldBookEntry | None:
     """Create or update a world book entry from skill-provided data."""
+    errors = validate_entry_data(data)
+    if errors:
+        logger.warning("world_book_entry_validation_failed", extra={"errors": errors, "data_keys": list(data.keys())})
+        if not data.get("id"):
+            return None
+
+    # Apply default_position from config when not provided (don't mutate input)
+    data = dict(data)
+    if "position" not in data:
+        cfg = _get_world_book_config()
+        data["position"] = cfg["default_position"]
+
     entry_id = data.get("id")
     if entry_id:
         try:
