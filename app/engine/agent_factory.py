@@ -410,6 +410,12 @@ async def ai_autonomous_selection(draft: AgentDraft, llm_caller: Callable) -> Ag
 
 async def prelearn_slangs(draft: AgentDraft, llm_caller: Callable, db_session) -> AgentDraft:
     """Query active Slangs, call slang_learning Skill, store learned slugs on draft."""
+    try:
+        if not yaml_config.slang.enabled:
+            return draft
+    except AttributeError:
+        return draft
+
     from sqlalchemy import select
 
     from app.models.slang import Slang

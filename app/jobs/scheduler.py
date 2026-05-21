@@ -22,6 +22,12 @@ _SCHEDULES_GENERATED_DAYS: set[str] = set()
 
 async def decay_slangs(db, llm_caller) -> None:
     """Daily task: decay personal_affinity for slangs not used recently."""
+    try:
+        if not yaml_config.slang.enabled:
+            return
+    except AttributeError:
+        return
+
     from datetime import timedelta
 
     from app.models.slang import AgentSlang

@@ -773,6 +773,12 @@ async def _follow_hook(agent, post, decision, reply_result, db, llm_caller) -> N
 
 async def _slang_hook(agent, post, decision, reply_result, db, llm_caller):
     """Learn new slangs from post content during browsing — priority=80."""
+    try:
+        if not yaml_config.slang.enabled:
+            return
+    except AttributeError:
+        return
+
     if decision is None:
         return
 
