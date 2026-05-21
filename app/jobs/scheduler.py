@@ -20,6 +20,31 @@ logger = structlog.get_logger()
 
 _SCHEDULES_GENERATED_DAYS: set[str] = set()
 
+async def decay_slangs(db, llm_caller) -> None:
+    """Daily task: decay personal_affinity for slangs not used recently."""
+    from datetime import timedelta
+
+    from app.models.slang import AgentSlang
+
+    result = await db.execute(select(AgentSlang))
+    all_records = list(result.scalars().all())
+    if not all_records:
+        return
+
+    now = datetime.now(timezone.utc)
+    threshold = now - timedelta(days=7)
+    decayed = 0
+
+    for a in all_records:
+        last_use = a.last_used_at or a.learned_at
+        if last_use and last_use < threshold and a.personal_affinity > 0.05:
+            a.personal_affinity = round(max(0.05, a.personal_affinity - 0.05), 2)
+            decayed += 1
+
+    if decayed:
+        logger.info("slang_decay_done", decayed=decayed, total=len(all_records))
+
+
 # Register daily schedule generation as a daily task
 daily_task_registry.register(
     "generate_daily_schedules",
@@ -27,6 +52,7 @@ daily_task_registry.register(
     hour=yaml_config.scheduler.daily_schedule_generation_hour,
     minute=0,
 )
+daily_task_registry.register("slang_decay", decay_slangs, hour=0, minute=7)
 
 
 async def run_scheduler_loop(

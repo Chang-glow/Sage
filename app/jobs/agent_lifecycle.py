@@ -771,7 +771,72 @@ async def _follow_hook(agent, post, decision, reply_result, db, llm_caller) -> N
     logger.info("follow_created", agent_id=agent_id, target_id=str(post.author_id))
 
 
+async def _slang_hook(agent, post, decision, reply_result, db, llm_caller):
+    """Learn new slangs from post content during browsing — priority=80."""
+    if decision is None:
+        return
+
+    agent_id = str(agent.id)
+    content = (post.content or "") + (post.title or "")
+
+    from app.models.slang import AgentSlang, Slang
+
+    slang_result = await db.execute(select(Slang).where(Slang.status == "active"))
+    all_slangs = list(slang_result.scalars().all())
+    if not all_slangs:
+        return
+
+    appearing = [s for s in all_slangs if s.slug in content]
+    if not appearing:
+        return
+
+    known_result = await db.execute(
+        select(AgentSlang).where(
+            AgentSlang.agent_id == agent.id,
+            AgentSlang.slang_id.in_([s.id for s in appearing]),
+        )
+    )
+    known_ids = {a.slang_id for a in known_result.scalars().all()}
+
+    unknown = [s for s in appearing if s.id not in known_ids]
+    if not unknown:
+        return
+
+    new_text = "\n".join(
+        f"- {s.slug}: {s.meaning}" + (f"（用法：{s.usage}）" if s.usage else "")
+        for s in unknown
+    )
+    known_text = "\n".join(
+        f"- {s.slug}: {s.meaning}" for s in appearing if s.id in known_ids
+    ) or "（暂无）"
+
+    ctx = {
+        **build_agent_context(agent),
+        "new_slangs": new_text,
+        "known_slangs": known_text,
+    }
+
+    try:
+        result = await execute("slang_learning", ctx, llm_caller=llm_caller, agent_id=agent_id, db=db)
+    except Exception:
+        return
+
+    if result.status != "success" or not isinstance(result.parsed, dict):
+        return
+
+    learned = result.parsed.get("learned", [])
+    for item in learned:
+        slug = item.get("slang_slug")
+        affinity = item.get("personal_affinity", 0.5)
+        if slug and affinity > 0.3:
+            matched = next((s for s in unknown if s.slug == slug), None)
+            if matched:
+                db.add(AgentSlang(agent_id=agent.id, slang_id=matched.id, personal_affinity=affinity))
+    await db.commit()
+
+
 # Register hooks at module level — runs once on import
 browse_hook_registry.register("like", _like_hook, priority=50)
 browse_hook_registry.register("bookmark", _bookmark_hook, priority=60)
 browse_hook_registry.register("follow", _follow_hook, priority=70)
+browse_hook_registry.register("slang", _slang_hook, priority=80)

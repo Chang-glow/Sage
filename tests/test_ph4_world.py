@@ -389,13 +389,23 @@ def test_set_notification_defaults_adult():
 
 
 def test_prelearn_slangs_noop():
+    """prelearn_slangs returns draft unchanged when no active slangs in DB."""
     from app.engine.agent_factory import prelearn_slangs, AgentDraft
+    from unittest.mock import AsyncMock, MagicMock
     import asyncio
 
     async def run():
         draft = AgentDraft()
-        result = await prelearn_slangs(draft, MagicMock())
+        mock_db = AsyncMock()
+        # Mock: no active slangs
+        mock_db.execute = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        mock_db.execute.return_value = mock_result
+
+        result = await prelearn_slangs(draft, MagicMock(), mock_db)
         assert result is draft
+        assert result.slang_slugs == []
 
     asyncio.run(run())
 

@@ -408,8 +408,46 @@ async def ai_autonomous_selection(draft: AgentDraft, llm_caller: Callable) -> Ag
     return draft
 
 
-async def prelearn_slangs(draft: AgentDraft, llm_caller: Callable) -> AgentDraft:
-    # Slang pre-learning is deferred until slangs table has data
+async def prelearn_slangs(draft: AgentDraft, llm_caller: Callable, db_session) -> AgentDraft:
+    """Query active Slangs, call slang_learning Skill, store learned slugs on draft."""
+    from sqlalchemy import select
+
+    from app.models.slang import Slang
+    from app.skills.executor import execute as _execute
+
+    result = await db_session.execute(select(Slang).where(Slang.status == "active"))
+    all_slangs = list(result.scalars().all())
+
+    if not all_slangs:
+        return draft
+
+    new_slangs_text = "\n".join(
+        f"- {s.slug}: {s.meaning}" + (f"（用法：{s.usage}）" if s.usage else "")
+        for s in all_slangs
+    )
+
+    ctx = {
+        "agent_name": draft.nickname or "新用户",
+        "agent_age": str(draft.age),
+        "agent_personality": ", ".join(draft.personality_adjectives) if draft.personality_adjectives else "普通",
+        "new_slangs": new_slangs_text,
+        "known_slangs": "（暂无，这是首次学习）",
+    }
+
+    try:
+        result = await _execute("slang_learning", ctx, llm_caller=llm_caller, agent_id="system", db=db_session)
+    except Exception:
+        logger.warning("prelearn_slangs_failed")
+        return draft
+
+    if result.status == "success" and isinstance(result.parsed, dict):
+        learned = result.parsed.get("learned", [])
+        draft.slang_slugs = [
+            item["slang_slug"] for item in learned
+            if item.get("slang_slug") and item.get("personal_affinity", 0) > 0.3
+        ]
+        logger.info("prelearn_slangs_done", count=len(draft.slang_slugs))
+
     return draft
 
 
@@ -470,7 +508,7 @@ async def create_agent(
     draft = select_naming_style(draft)
     draft = await ai_autonomous_selection(draft, llm_caller)
     draft = gen_personality_adjust(draft)
-    draft = await prelearn_slangs(draft, llm_caller)
+    draft = await prelearn_slangs(draft, llm_caller, db_session)
     draft = set_notification_defaults(draft)
 
     # Validate with retry
@@ -569,5 +607,25 @@ async def _persist_agent(draft: AgentDraft, db_session) -> Agent:
             logger.info("persona_prompt_generated", agent_id=str(agent.id))
     except Exception as e:
         logger.warning("persona_summary_failed", agent_id=str(agent.id), error=str(e))
+
+    # Create AgentSlang records for pre-learned slangs
+    if draft.slang_slugs:
+        try:
+            from sqlalchemy import select as _select
+
+            from app.models.slang import AgentSlang, Slang
+
+            slang_result = await db_session.execute(
+                _select(Slang).where(Slang.slug.in_(draft.slang_slugs))
+            )
+            slang_map = {s.slug: s for s in slang_result.scalars().all()}
+            for slug in draft.slang_slugs:
+                slang = slang_map.get(slug)
+                if slang:
+                    db_session.add(AgentSlang(agent_id=agent.id, slang_id=slang.id, personal_affinity=0.5))
+            await db_session.flush()
+            logger.info("agent_slangs_created", agent_id=str(agent.id), count=len(draft.slang_slugs))
+        except Exception as e:
+            logger.warning("agent_slangs_failed", agent_id=str(agent.id), error=str(e))
 
     return agent
