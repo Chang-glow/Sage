@@ -24,6 +24,8 @@ logger = structlog.get_logger()
 
 _UTC8 = timezone.utc  # 简化处理，实际 UTC+8 偏移在时间解析时处理
 _sage_reply_hour_counts: dict[int, int] = {}  # hour → count for rate limiting
+_search_cooldowns: dict[str, datetime] = {}  # agent_id → last search time
+_search_counts: dict[str, int] = {}  # agent_id → search count in current cooldown window
 
 
 def _parse_time(t_str: str) -> tuple[int, int]:
@@ -547,13 +549,18 @@ async def _step5_browse_and_interact(
         # Run browse filter
         filter_results = await run_browse_filter(agent, posts, db, llm_caller)
         passed_ids = {fr.post_id for fr in filter_results if fr.passed}
-
-        if not passed_ids:
-            continue
+        filter_by_id = {fr.post_id: fr for fr in filter_results}
 
         for post in posts:
-            if str(post.id) not in passed_ids:
+            post_id_str = str(post.id)
+            fr = filter_by_id.get(post_id_str)
+
+            # Filtered posts: only iterate hooks for low-similarity (enables search hook)
+            if fr is None or not fr.passed:
+                if fr is not None and fr.reason == "low_similarity":
+                    await browse_hook_registry.iterate(agent, post, None, None, db, llm_caller)
                 continue
+
             if daily_reply_count >= max_daily_replies:
                 logger.info("browse_reply_cap", agent_id=agent_id, count=daily_reply_count)
                 return
@@ -686,6 +693,20 @@ async def _count_today_likes(agent, db: AsyncSession) -> int:
         select(Like).where(
             Like.agent_id == agent.id,
             Like.created_at >= datetime(today.year, today.month, today.day, tzinfo=timezone.utc),
+        )
+    )
+    return len(result.scalars().all())
+
+
+async def _count_today_dms(agent, db: AsyncSession) -> int:
+    """Count how many DMs this agent sent today."""
+    from app.models.social import PrivateMessage
+
+    today = date.today()
+    result = await db.execute(
+        select(PrivateMessage).where(
+            PrivateMessage.sender_id == agent.id,
+            PrivateMessage.created_at >= datetime(today.year, today.month, today.day, tzinfo=timezone.utc),
         )
     )
     return len(result.scalars().all())
@@ -985,9 +1006,126 @@ async def _memory_extraction_hook(agent, post, decision, reply_result, db, llm_c
                 fragments=len(fragments), total=len(existing))
 
 
+async def _dm_hook(agent, post, decision, reply_result, db, llm_caller) -> None:
+    """BrowseHook priority=100: decide whether to send a DM after replying."""
+    if reply_result is None:
+        return
+
+    agent_id = str(agent.id)
+
+    # Check personality threshold: extroversion × openness > threshold
+    pv = agent.personality_vector or {}
+    extroversion = float(pv.get("extroversion") or pv.get("外向", 0.5))
+    openness = float(pv.get("openness") or pv.get("开放", 0.5))
+    threshold = float(yaml_config.browse.dm_outgoing_threshold)
+
+    if extroversion * openness <= threshold:
+        return
+
+    # Check daily cap
+    today_dm_count = await _count_today_dms(agent, db)
+    max_per_day = int(yaml_config.browse.dm_max_per_day)
+    if today_dm_count >= max_per_day:
+        return
+
+    target_name = post.author.nickname if post.author else "未知"
+    ctx = {
+        **build_agent_context(agent),
+        "target_name": target_name,
+        "interaction_quality": "深度互动",
+        "last_reply": reply_result.get("content", "")[:500],
+        "post_title": post.title or "",
+    }
+
+    try:
+        result = await execute("dm_decision", ctx, llm_caller=llm_caller, agent_id=agent_id, db=db)
+    except Exception:
+        logger.warning("dm_decision_failed", agent_id=agent_id)
+        return
+
+    if result.status != "success" or not isinstance(result.parsed, dict):
+        return
+    if not result.parsed.get("will_dm"):
+        return
+
+    dm_content = result.parsed.get("content", "")
+    if not dm_content.strip():
+        return
+
+    from app.models.social import PrivateMessage
+    from app.jobs.notification_engine import _create_notification
+
+    dm = PrivateMessage(
+        sender_id=agent.id,
+        recipient_id=post.author_id,
+        content=dm_content,
+    )
+    db.add(dm)
+    await db.commit()
+
+    await _create_notification(
+        post.author_id, agent.id, "dm",
+        db, reference_type="post", reference_id=str(post.id),
+        message=f"{agent.nickname} 给你发了一条私信",
+        priority="high",
+    )
+
+    logger.info("dm_sent", agent_id=agent_id, target=target_name)
+
+
+async def _search_hook(agent, post, decision, reply_result, db, llm_caller) -> None:
+    """BrowseHook priority=40: trigger search intent on low-similarity filtered posts."""
+    if decision is not None:
+        return  # Only trigger on posts that didn't pass the filter
+
+    agent_id = str(agent.id)
+    now = datetime.now(timezone.utc)
+
+    # Cooldown check: reset counter if cooldown window has passed
+    from datetime import timedelta
+
+    cooldown_minutes = int(yaml_config.browse.search_cooldown_minutes)
+    cooldown_delta = timedelta(minutes=cooldown_minutes)
+    last_search = _search_cooldowns.get(agent_id)
+
+    if last_search is not None and (now - last_search) > cooldown_delta:
+        _search_counts[agent_id] = 0
+        _search_cooldowns[agent_id] = now
+
+    count = _search_counts.get(agent_id, 0)
+    max_per_cooldown = int(yaml_config.browse.search_max_per_cooldown)
+    if count >= max_per_cooldown:
+        return
+
+    ctx = {
+        **build_agent_context(agent),
+        "post_title": post.title or "",
+        "post_content": (post.content or "")[:500],
+        "post_bar": post.bar.name if post.bar else "未知",
+    }
+
+    try:
+        result = await execute("search_decision", ctx, llm_caller=llm_caller, agent_id=agent_id, db=db)
+    except Exception:
+        logger.warning("search_decision_failed", agent_id=agent_id)
+        return
+
+    if result.status != "success" or not isinstance(result.parsed, dict):
+        return
+
+    if result.parsed.get("should_search"):
+        _search_counts[agent_id] = count + 1
+        if last_search is None:
+            _search_cooldowns[agent_id] = now
+        logger.info("search_intent_recorded", agent_id=agent_id,
+                    search_query=result.parsed.get("search_query", ""))
+
+
 # Register hooks at module level — runs once on import
 browse_hook_registry.register("like", _like_hook, priority=50)
 browse_hook_registry.register("bookmark", _bookmark_hook, priority=60)
 browse_hook_registry.register("follow", _follow_hook, priority=70)
 browse_hook_registry.register("slang", _slang_hook, priority=80)
+browse_hook_registry.register("search", _search_hook, priority=40)
 browse_hook_registry.register("memory_extract", _memory_extraction_hook, priority=90)
+browse_hook_registry.register("dm", _dm_hook, priority=100)
