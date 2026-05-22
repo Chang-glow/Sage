@@ -72,6 +72,119 @@ async def consolidate_memories_task(db, llm_caller: Callable) -> None:
         logger.info("consolidate_memories_done", agents=consolidated)
 
 
+async def sage_news_task(db, llm_caller: Callable) -> None:
+    """Daily task (10:00): generate Sage daily news post."""
+    from app.models.agent import Agent
+    from app.models.post import Post
+    from app.skills.executor import execute
+
+    sage_result = await db.execute(
+        select(Agent).where(Agent.nickname == "Sage", Agent.status == "system")
+    )
+    sage = sage_result.scalar_one_or_none()
+    if sage is None:
+        logger.warning("sage_agent_not_found")
+        return
+
+    # Gather city events from external topics
+    from app.models.external_topic import Topic
+    topics_result = await db.execute(select(Topic).limit(10))
+    topics = list(topics_result.scalars().all())
+    external_text = "\n".join(
+        f"- {t.title}: {t.summary or ''}" for t in topics
+    ) if topics else "今日无特别外部事件"
+
+    ctx = {
+        "city_events_today": external_text,
+        "weather_season": "五月 · 初夏，微暖",
+        "external_topics": external_text,
+        "recent_community_trends": "（社区趋势数据由系统收集）",
+    }
+
+    result = await execute("sage_news", ctx, llm_caller=llm_caller, agent_id=str(sage.id), db=db)
+    if result.status != "success" or not isinstance(result.parsed, dict):
+        logger.warning("sage_news_failed", status=result.status)
+        return
+
+    parsed = result.parsed
+    title = parsed.get("title", "平陵新闻")
+    content = parsed.get("content", "")
+
+    post = Post(
+        author_id=sage.id,
+        title=title,
+        content=content,
+        is_hidden=False,
+    )
+    db.add(post)
+    await db.commit()
+    logger.info("sage_news_published", post_id=str(post.id))
+
+
+async def sage_summary_task(db, llm_caller: Callable) -> None:
+    """Daily task (23:30): generate Sage community daily summary."""
+    from app.models.agent import Agent
+    from app.models.post import Post
+    from app.skills.executor import execute
+
+    sage_result = await db.execute(
+        select(Agent).where(Agent.nickname == "Sage", Agent.status == "system")
+    )
+    sage = sage_result.scalar_one_or_none()
+    if sage is None:
+        logger.warning("sage_agent_not_found")
+        return
+
+    # Gather today's stats
+    from app.models.bar import Bar
+    from datetime import date
+
+    today = date.today()
+
+    bars_result = await db.execute(select(Bar).limit(10))
+    bars = list(bars_result.scalars().all())
+    active_bars_text = "\n".join(f"- {b.name}" for b in bars) if bars else "暂无活跃吧"
+
+    # Hot posts
+    from app.models.post import Post as PostModel
+    hot_result = await db.execute(
+        select(PostModel).order_by(PostModel.reply_count.desc()).limit(5)
+    )
+    hot_posts = list(hot_result.scalars().all())
+    hot_text = "\n".join(
+        f"- 《{p.title}》(作者: {p.author.nickname if p.author else '未知'}, 回复: {p.reply_count})"
+        for p in hot_posts
+    ) if hot_posts else "今日暂无热门帖子"
+
+    ctx = {
+        "hot_posts": hot_text,
+        "active_bars": active_bars_text,
+        "active_agents": "（统计中）",
+        "total_posts": "（统计中）",
+        "total_replies": "（统计中）",
+        "key_events": "今日暂无特别关键事件",
+    }
+
+    result = await execute("sage_summary", ctx, llm_caller=llm_caller, agent_id=str(sage.id), db=db)
+    if result.status != "success" or not isinstance(result.parsed, dict):
+        logger.warning("sage_summary_failed", status=result.status)
+        return
+
+    parsed = result.parsed
+    title = parsed.get("title", "夕照雅巷 · 社区总结")
+    content = parsed.get("content", "")
+
+    post = Post(
+        author_id=sage.id,
+        title=title,
+        content=content,
+        is_hidden=False,
+    )
+    db.add(post)
+    await db.commit()
+    logger.info("sage_summary_published", post_id=str(post.id))
+
+
 # Register daily tasks
 daily_task_registry.register(
     "generate_daily_schedules",
@@ -81,6 +194,8 @@ daily_task_registry.register(
 )
 daily_task_registry.register("slang_decay", decay_slangs, hour=0, minute=7)
 daily_task_registry.register("memory_consolidate", consolidate_memories_task, hour=0, minute=13)
+daily_task_registry.register("sage_news", sage_news_task, hour=10, minute=0)
+daily_task_registry.register("sage_summary", sage_summary_task, hour=23, minute=30)
 
 
 async def run_scheduler_loop(

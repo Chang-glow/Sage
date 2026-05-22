@@ -23,6 +23,7 @@ from app.skills.skill_utils import build_agent_context, build_post_context, buil
 logger = structlog.get_logger()
 
 _UTC8 = timezone.utc  # 简化处理，实际 UTC+8 偏移在时间解析时处理
+_sage_reply_hour_counts: dict[int, int] = {}  # hour → count for rate limiting
 
 
 def _parse_time(t_str: str) -> tuple[int, int]:
@@ -175,7 +176,7 @@ async def _run_online_flow_inner(
     bar_selection = await _step3_bar_selection(agent, db, llm_caller, ctx, summary)
 
     # Step 4: Notification processing
-    await _step4_notifications(agent, db)
+    await _step4_notifications(agent, db, llm_caller)
 
     # Step 5: Browse & interact
     await _step5_browse_and_interact(agent, db, llm_caller, summary, bar_selection)
@@ -404,8 +405,10 @@ async def _step3_bar_selection(
 # ─── Step 4: Notification processing ───
 
 
-async def _step4_notifications(agent: Agent, db: AsyncSession) -> None:
-    """Pull unread notifications, prioritize, mark as read."""
+async def _step4_notifications(agent: Agent, db: AsyncSession, llm_caller: Callable) -> None:
+    """Pull unread notifications, prioritize, mark as read.
+    For Sage agent, also handle @mention notifications via sage_reply skill.
+    """
     agent_id = str(agent.id)
 
     result = await db.execute(
@@ -425,6 +428,73 @@ async def _step4_notifications(agent: Agent, db: AsyncSession) -> None:
     await db.commit()
 
     logger.info("notifications_processed", agent_id=agent_id, total=len(notifications), high_priority=high)
+
+    # Sage agent: handle @mention notifications
+    if agent.nickname == "Sage":
+        mention_notifs = [n for n in notifications if n.notification_type == "mention"]
+        for notif in mention_notifs:
+            await _handle_sage_mention(agent, notif, db, llm_caller)
+
+
+async def _handle_sage_mention(
+    sage_agent, notification, db: AsyncSession, llm_caller
+) -> None:
+    """Handle a single @Sage mention: call sage_reply skill, create Reply, respect rate limit."""
+    from app.models.post import Post, Reply
+    from app.skills.skill_utils import build_post_context
+
+    max_per_hour = yaml_config.browse.sage_reply_max_per_hour
+    now = datetime.now(timezone.utc)
+    current_hour = (now.hour + 8) % 24
+
+    # Rate limit check
+    hour_count = _sage_reply_hour_counts.get(current_hour, 0)
+    if hour_count >= max_per_hour:
+        logger.info("sage_reply_rate_limited", hour=current_hour, count=hour_count)
+        return
+
+    # Get the post context
+    ref_id = notification.reference_id
+    post = None
+    if ref_id:
+        post_result = await db.execute(select(Post).where(Post.id == ref_id))
+        post = post_result.scalar_one_or_none()
+
+    caller_name = "匿名"
+    if notification.sender_id:
+        from app.models.agent import Agent
+        caller_result = await db.execute(select(Agent).where(Agent.id == notification.sender_id))
+        caller = caller_result.scalar_one_or_none()
+        if caller:
+            caller_name = caller.nickname
+
+    post_ctx = build_post_context(post) if post else {}
+    ctx = {
+        "caller_name": caller_name,
+        "caller_question": notification.message or f"@{caller_name} 请帮忙",
+        "post_context": post_ctx.get("post_title", "") + "\n" + (post_ctx.get("post_content", "")[:500] if post else ""),
+        "relevant_info": "夕照雅巷社区规则和数据由系统提供",
+        "sage_persona": "夕照雅巷社区系统 AI，温和、有智慧、乐于助人",
+    }
+
+    result = await execute("sage_reply", ctx, llm_caller=llm_caller, agent_id=str(sage_agent.id), db=db)
+    if result.status != "success" or not isinstance(result.parsed, dict):
+        return
+
+    reply_content = result.parsed.get("content", "")
+    if not reply_content.strip():
+        return
+
+    reply = Reply(
+        post_id=ref_id,
+        author_id=sage_agent.id,
+        content=reply_content,
+    )
+    db.add(reply)
+    await db.commit()
+
+    _sage_reply_hour_counts[current_hour] = hour_count + 1
+    logger.info("sage_reply_sent", to=caller_name, post_id=str(ref_id))
 
 
 # ─── Step 5: Browse & interact ───

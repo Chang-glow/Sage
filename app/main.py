@@ -44,6 +44,27 @@ async def lifespan(app: FastAPI):
     engine = create_async_engine(settings.database_url)
     app.state.db_session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
+    # Ensure Sage system agent exists
+    from app.models.agent import Agent
+    from sqlalchemy import select
+    async with app.state.db_session_factory() as db:
+        sage_result = await db.execute(select(Agent).where(Agent.nickname == "Sage"))
+        if sage_result.scalar_one_or_none() is None:
+            sage = Agent(
+                nickname="Sage",
+                age=0,
+                gender="system",
+                status="system",
+                occupation="社区 AI",
+                chronotype="system",
+                persona_prompt="夕照雅巷社区系统 AI，温和、有智慧、乐于助人",
+            )
+            db.add(sage)
+            await db.commit()
+            logger.info("sage_agent_created", id=str(sage.id))
+        else:
+            logger.info("sage_agent_exists")
+
     from app.jobs.scheduler import run_scheduler_loop
 
     stop_event = asyncio.Event()
