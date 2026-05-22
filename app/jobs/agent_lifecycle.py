@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import uuid
 from datetime import date, datetime, timezone
 from typing import Callable
 
@@ -840,8 +841,83 @@ async def _slang_hook(agent, post, decision, reply_result, db, llm_caller):
     await db.commit()
 
 
+async def _memory_extraction_hook(agent, post, decision, reply_result, db, llm_caller) -> None:
+    """BrowseHook priority=90: extract memory fragments after deep interaction."""
+    if reply_result is None:
+        return
+
+    agent_id = str(agent.id)
+    author_name = post.author.nickname if post.author else "匿名"
+    interaction_text = (
+        f"帖子内容：{post.content or ''}\n"
+        f"你的回复：{reply_result.get('content', '')}"
+    )[:3000]
+
+    # Collect existing memories about this author
+    existing = agent.solidified_memories or []
+    related = [
+        m.get("content", "") for m in existing
+        if m.get("type") in ("short", "long")
+        and m.get("related_agent_id") == str(post.author_id)
+    ][:5]
+    existing_text = "\n".join(f"- {c}" for c in related) if related else "（暂无）"
+
+    ctx = {
+        **build_agent_context(agent),
+        "other_agent_name": author_name,
+        "interaction_context": interaction_text,
+        "interaction_type": "reply",
+        "existing_memories": existing_text,
+    }
+
+    try:
+        result = await execute("memory_extraction", ctx, llm_caller=llm_caller, agent_id=agent_id, db=db)
+    except Exception:
+        logger.warning("memory_extraction_failed", agent_id=agent_id)
+        return
+
+    if result.status != "success" or not isinstance(result.parsed, dict):
+        return
+
+    fragments = result.parsed.get("fragments", [])
+    if not fragments:
+        return
+
+    now_ts = datetime.now(timezone.utc).isoformat()
+    for frag in fragments:
+        frag["id"] = str(uuid.uuid4())
+        frag["retrieval_count"] = 0
+        frag["created_at"] = now_ts
+        frag["source_type"] = "reply"
+        frag["related_agent_id"] = str(post.author_id)
+        existing.append(frag)
+
+    # Evict lowest importance short fragments if over limit
+    short_frags = [f for f in existing if f.get("type") == "short"]
+    max_short = yaml_config.memory.max_short_fragments
+    if len(short_frags) > max_short:
+        short_frags.sort(key=lambda f: f.get("importance", 0))
+        for frag in short_frags[:len(short_frags) - max_short]:
+            existing.remove(frag)
+
+    # Evict lowest importance long fragments if over limit
+    long_frags = [f for f in existing if f.get("type") == "long"]
+    max_long = yaml_config.memory.max_long_fragments
+    if len(long_frags) > max_long:
+        long_frags.sort(key=lambda f: f.get("importance", 0))
+        for frag in long_frags[:len(long_frags) - max_long]:
+            existing.remove(frag)
+
+    agent.solidified_memories = existing
+    await db.commit()
+
+    logger.info("memory_extracted", agent_id=agent_id,
+                fragments=len(fragments), total=len(existing))
+
+
 # Register hooks at module level — runs once on import
 browse_hook_registry.register("like", _like_hook, priority=50)
 browse_hook_registry.register("bookmark", _bookmark_hook, priority=60)
 browse_hook_registry.register("follow", _follow_hook, priority=70)
 browse_hook_registry.register("slang", _slang_hook, priority=80)
+browse_hook_registry.register("memory_extract", _memory_extraction_hook, priority=90)

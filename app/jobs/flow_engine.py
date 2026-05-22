@@ -254,11 +254,16 @@ async def run_interactive_flow_round(
         if bar_id:
             await add_xp(agent.id, bar_id, "reply", db)
 
-        # Flow ended: call follow_hook directly (doesn't go through BrowseHook loop)
+        # Flow ended: call follow_hook + memory_extraction directly (doesn't go through BrowseHook loop)
         if flow_ended:
             try:
                 from app.jobs.agent_lifecycle import _follow_hook
                 await _follow_hook(agent, post, None, {"content": reply_content}, db, llm_caller)
+            except Exception:
+                pass
+            try:
+                from app.jobs.agent_lifecycle import _memory_extraction_hook
+                await _memory_extraction_hook(agent, post, None, {"content": reply_content}, db, llm_caller)
             except Exception:
                 pass
 

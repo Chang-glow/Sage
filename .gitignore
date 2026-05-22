@@ -1,3 +1,9 @@
+# 隐藏文件：所有 . 开头默认 ignore，例外仅 .gitignore / .gitattributes / .env.example
+.*
+!.gitignore
+!.gitattributes
+!.env.example
+
 # Python
 __pycache__/
 *.py[cod]
@@ -7,17 +13,7 @@ dist/
 
 # Virtual environment
 venv/
-.venv/
 env/
-
-# Environment
-.env
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
 
 # OS
 .DS_Store
@@ -26,10 +22,6 @@ Thumbs.db
 # Docker
 pgdata/
 
-# Alembic (generated migration scripts are tracked)
-# but we don't need to track the alembic.ini if it has secrets
-# alembic.ini is tracked with placeholder values
-
 # Logs
 *.log
 
@@ -37,6 +29,3 @@ pgdata/
 htmlcov/
 .coverage
 .coverage.*
-
-# Claude
-.claude/

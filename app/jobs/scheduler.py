@@ -50,7 +50,29 @@ async def decay_slangs(db, llm_caller) -> None:
         logger.info("slang_decay_done", decayed=decayed, total=len(all_records))
 
 
-# Register daily schedule generation as a daily task
+async def consolidate_memories_task(db, llm_caller: Callable) -> None:
+    """Daily task: run memory consolidation for all active agents."""
+    from app.engine.memory_engine import consolidate_agent_memories
+    from app.models.agent import Agent
+
+    result = await db.execute(select(Agent).where(Agent.status == "active"))
+    agents = list(result.scalars().all())
+
+    consolidated = 0
+    for agent in agents:
+        if not (agent.solidified_memories):
+            continue
+        try:
+            await consolidate_agent_memories(agent, db, llm_caller)
+            consolidated += 1
+        except Exception:
+            logger.warning("consolidate_agent_failed", agent_id=str(agent.id))
+
+    if consolidated:
+        logger.info("consolidate_memories_done", agents=consolidated)
+
+
+# Register daily tasks
 daily_task_registry.register(
     "generate_daily_schedules",
     generate_all_daily_schedules,
@@ -58,6 +80,7 @@ daily_task_registry.register(
     minute=0,
 )
 daily_task_registry.register("slang_decay", decay_slangs, hour=0, minute=7)
+daily_task_registry.register("memory_consolidate", consolidate_memories_task, hour=0, minute=13)
 
 
 async def run_scheduler_loop(
