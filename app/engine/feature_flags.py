@@ -117,5 +117,15 @@ def _init_from_config() -> None:
         default_enabled=meme_default,
     )
 
+    # promises
+    try:
+        promises_default = bool(_cfg.promises.enabled)
+    except AttributeError:
+        promises_default = False
+    PluginRegistry.register(
+        "promises", "承诺与期待机制 — promise detection and expectation tracking", "promises",
+        default_enabled=promises_default,
+    )
+
 
 _init_from_config()

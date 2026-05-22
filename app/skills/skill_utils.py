@@ -53,6 +53,14 @@ def build_agent_context(agent) -> dict[str, Any]:
     else:
         interest_str = "广泛"
 
+    # Filter active distrust tags
+    from datetime import datetime, timezone as _tz
+    now = datetime.now(_tz.utc).isoformat()
+    active_tags = [
+        t for t in (agent.distrust_tags or [])
+        if isinstance(t, dict) and t.get("expires_at", "") > now
+    ]
+
     return {
         "agent_id": str(agent.id),
         "agent_name": agent.nickname,
@@ -67,6 +75,7 @@ def build_agent_context(agent) -> dict[str, Any]:
         "agent_income_level": agent.income_level or "",
         "agent_school_or_company": agent.school_or_company or "",
         "agent_chronotype": agent.chronotype or "normal",
+        "distrust_tags": active_tags,
     }
 
 

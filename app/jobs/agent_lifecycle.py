@@ -1141,11 +1141,105 @@ async def _search_hook(agent, post, decision, reply_result, db, llm_caller) -> N
                     search_query=result.parsed.get("search_query", ""))
 
 
+async def _count_active_promises(agent, db: AsyncSession) -> int:
+    """Count how many active (pending) promises the agent has made (as promiser)."""
+    from app.models.promise import Promise
+    result = await db.execute(
+        select(func.count()).select_from(Promise).where(
+            Promise.promiser_id == agent.id,
+            Promise.status == "pending",
+        )
+    )
+    return result.scalar() or 0
+
+
+async def _promise_detection_hook(agent, post, decision, reply_result, db, llm_caller) -> None:
+    """BrowseHook priority=85: detect promise statements in replies."""
+    if reply_result is None:
+        return  # Only trigger after a reply
+
+    from app.engine.feature_flags import plugin_registry
+    if not plugin_registry.is_enabled("promises"):
+        return
+
+    agent_id = str(agent.id)
+    active_count = await _count_active_promises(agent, db)
+    max_active = int(yaml_config.promises.max_active_promises_per_agent)
+    if active_count >= max_active:
+        return
+
+    reply_content = reply_result.get("content", "") if isinstance(reply_result, dict) else str(reply_result)
+    if not reply_content:
+        return
+
+    target_name = post.author.nickname if post.author else "对方"
+
+    ctx = {
+        **build_agent_context(agent),
+        "reply_content": reply_content,
+        "target_name": target_name,
+        "conversation_context": f"回复帖子「{post.title or ''}」",
+    }
+
+    try:
+        result = await execute("promise_detection", ctx, llm_caller=llm_caller, agent_id=agent_id, db=db)
+    except Exception:
+        logger.warning("promise_detection_failed", agent_id=agent_id)
+        return
+
+    if result.status != "success" or not isinstance(result.parsed, dict):
+        return
+
+    if not result.parsed.get("detected"):
+        return
+
+    from app.engine.promise_engine import _parse_due_time
+    from app.models.promise import Promise
+
+    content = result.parsed.get("content", "")
+    due_time_estimate = result.parsed.get("due_time_estimate", "")
+    float_minutes = result.parsed.get("float_minutes")
+    importance = float(result.parsed.get("importance", 0.5))
+
+    now = datetime.now(timezone.utc)
+    due_time = _parse_due_time(due_time_estimate, now) if due_time_estimate else None
+
+    if float_minutes is None:
+        float_minutes = float(yaml_config.promises.default_float_minutes)
+
+    promise = Promise(
+        requester_id=post.author_id,
+        promiser_id=agent.id,
+        content=content,
+        due_time=due_time,
+        float_value=float(float_minutes),
+        importance=importance,
+        source_reply_id=None,  # reply_result doesn't include reply ID in BrowseHook context
+    )
+    db.add(promise)
+    await db.commit()
+
+    # Notify the requester
+    from app.jobs.notification_engine import _create_notification
+    try:
+        await _create_notification(
+            str(post.author_id), agent_id, "promise_made", db,
+            reference_type="post", reference_id=str(post.id),
+            message=f"{agent.nickname} 向你承诺：{content}", priority="medium",
+        )
+    except Exception:
+        pass
+
+    logger.info("promise_created", agent_id=agent_id, target_id=str(post.author_id),
+                content=content[:80], due_time=str(due_time)[:19] if due_time else "none")
+
+
 # Register hooks at module level — runs once on import
 browse_hook_registry.register("like", _like_hook, priority=50)
 browse_hook_registry.register("bookmark", _bookmark_hook, priority=60)
 browse_hook_registry.register("follow", _follow_hook, priority=70)
 browse_hook_registry.register("slang", _slang_hook, priority=80)
+browse_hook_registry.register("promise_detect", _promise_detection_hook, priority=85)
 browse_hook_registry.register("search", _search_hook, priority=40)
 browse_hook_registry.register("memory_extract", _memory_extraction_hook, priority=90)
 browse_hook_registry.register("dm", _dm_hook, priority=100)

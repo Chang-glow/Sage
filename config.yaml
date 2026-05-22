@@ -111,3 +111,16 @@ world_book:
   scan_depth: 10 # 扫描上下文的回复深度
   max_recursive_depth: 3 # 递归触发最大深度
   default_position: after_char # 默认插入位置
+
+# ── 承诺与期待 ──
+promises:
+  enabled: false                 # FeatureFlag 默认关
+  detection_priority: 85         # BrowseHook 优先级
+  deadline_check_hour: 8         # 每日截止检查时间
+  deadline_check_minute: 0
+  max_active_promises_per_agent: 5
+  default_float_minutes: 60      # LLM 未返回容差时的默认值
+  broken_intimacy_penalty: -0.05 # 失信 intimacy 扣减
+  fulfilled_intimacy_boost: 0.03 # 履行 intimacy 增加
+  distrust_tag_duration_days: 30 # 不信任标签有效期
+  expectation_peak_days_before: 1  # 期待值在截止前 N 天达到峰值

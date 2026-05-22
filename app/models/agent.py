@@ -48,6 +48,7 @@ class Agent(Base):
         UUID(as_uuid=True), ForeignKey("agents.id")
     )
     solidified_memories: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(JSON)
+    distrust_tags: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(JSON)
     persona_prompt: Mapped[Optional[str]] = mapped_column(String)
     status: Mapped[str] = mapped_column(
         String(20), server_default=text("'active'"), default="active"

@@ -13,5 +13,6 @@ from app.models.post import Post, Reply  # noqa: E402, F401
 from app.models.relationship import Relationship  # noqa: E402, F401
 from app.models.skill_group import SkillGroup, SkillGroupMember  # noqa: E402, F401
 from app.models.slang import AgentSlang, Slang  # noqa: E402, F401
+from app.models.promise import Promise  # noqa: E402, F401
 from app.models.social import Bookmark, Follow, Like, PrivateMessage  # noqa: E402, F401
 from app.models.world_book import WorldBookEntry  # noqa: E402, F401
