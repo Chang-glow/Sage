@@ -185,6 +185,65 @@ async def sage_summary_task(db, llm_caller: Callable) -> None:
     logger.info("sage_summary_published", post_id=str(post.id))
 
 
+async def check_promise_deadlines_task(db, llm_caller: Callable) -> None:
+    """Daily task: check pending promises, mark broken those past deadline + grace period."""
+    from app.engine.feature_flags import plugin_registry
+    if not plugin_registry.is_enabled("promises"):
+        return
+
+    from app.models.promise import Promise
+    from app.engine.promise_engine import check_promise_status
+    from app.jobs.social_engine import adjust_after_promise_broken
+    from app.jobs.notification_engine import _create_notification
+
+    result = await db.execute(
+        select(Promise).where(
+            Promise.status == "pending",
+            Promise.due_time.isnot(None),
+        )
+    )
+    pending_promises = result.scalars().all()
+
+    broken_count = 0
+    for promise in pending_promises:
+        status = check_promise_status(promise)
+        if status == "broken":
+            promise.status = "broken"
+            promise.fulfilled_at = datetime.now(timezone.utc)
+            db.add(promise)
+
+            try:
+                await adjust_after_promise_broken(
+                    promise.requester_id, promise.promiser_id,
+                    promise.content, db,
+                )
+            except Exception:
+                logger.warning("promise_broken_penalty_failed", promise_id=str(promise.id))
+
+            # Notify both parties
+            try:
+                await _create_notification(
+                    str(promise.promiser_id), str(promise.requester_id),
+                    "promise_broken", db,
+                    message=f"你未能履行承诺：「{promise.content}」",
+                    priority="high",
+                )
+                await _create_notification(
+                    str(promise.requester_id), str(promise.promiser_id),
+                    "promise_broken", db,
+                    message=f"对方未履行承诺：「{promise.content}」",
+                    priority="medium",
+                )
+            except Exception:
+                pass
+
+            broken_count += 1
+
+    if broken_count > 0:
+        await db.commit()
+        logger.info("promise_deadline_check_done", broken=broken_count, total=len(pending_promises))
+
+
 # Register daily tasks
 daily_task_registry.register(
     "generate_daily_schedules",
@@ -196,6 +255,12 @@ daily_task_registry.register("slang_decay", decay_slangs, hour=0, minute=7)
 daily_task_registry.register("memory_consolidate", consolidate_memories_task, hour=0, minute=13)
 daily_task_registry.register("sage_news", sage_news_task, hour=10, minute=0)
 daily_task_registry.register("sage_summary", sage_summary_task, hour=23, minute=30)
+daily_task_registry.register(
+    "promise_deadline_check",
+    check_promise_deadlines_task,
+    hour=yaml_config.promises.deadline_check_hour,
+    minute=yaml_config.promises.deadline_check_minute,
+)
 
 
 async def run_scheduler_loop(

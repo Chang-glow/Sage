@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 import structlog
@@ -18,6 +18,8 @@ _INTIMACY_LIKE = 0.01
 _INTIMACY_FOLLOW = 0.02
 _INTIMACY_CONFLICT = -0.05
 _INTIMACY_BLOCK = -0.10
+_PROMISE_BROKEN = -0.05
+_PROMISE_FULFILLED = 0.03
 
 
 async def _ensure_relationship(agent_id, target_id, db: "AsyncSession") -> Relationship:
@@ -133,4 +135,67 @@ async def adjust_after_conflict(
         rel.attitude = "negative"
     rel.last_interaction = datetime.now(timezone.utc)
     await db.commit()
+    return rel
+
+
+async def adjust_after_promise_broken(
+    requester_id,
+    promiser_id,
+    promise_content: str,
+    db: "AsyncSession",
+) -> Relationship | None:
+    """Promise broken: reduce intimacy + add distrust_tag to promiser."""
+    if requester_id == promiser_id:
+        return None
+
+    from app.config import config as yaml_config
+    from app.models.agent import Agent
+
+    rel = await _ensure_relationship(requester_id, promiser_id, db)
+    rel.intimacy = max(-1.0, min(1.0, rel.intimacy + _PROMISE_BROKEN))
+    rel.last_interaction = datetime.now(timezone.utc)
+    if rel.intimacy < -0.2:
+        rel.attitude = "negative"
+
+    # Add distrust_tag to promiser
+    now = datetime.now(timezone.utc)
+    duration_days = int(yaml_config.promises.distrust_tag_duration_days)
+    expires_at = now + timedelta(days=duration_days)
+
+    result = await db.execute(
+        select(Agent).where(Agent.id == promiser_id)
+    )
+    promiser = result.scalar_one_or_none()
+    if promiser is not None:
+        tags = list(promiser.distrust_tags or [])
+        tags.append({
+            "from_id": str(requester_id),
+            "reason": promise_content,
+            "expires_at": expires_at.isoformat(),
+            "created_at": now.isoformat(),
+        })
+        promiser.distrust_tags = tags
+
+    await db.commit()
+    logger.info("promise_broken", requester=str(requester_id), promiser=str(promiser_id),
+                intimacy=round(rel.intimacy, 3))
+    return rel
+
+
+async def adjust_after_promise_fulfilled(
+    requester_id,
+    promiser_id,
+    promise_content: str,
+    db: "AsyncSession",
+) -> Relationship | None:
+    """Promise fulfilled: boost intimacy. Status: pending fulfillment detection (future phase)."""
+    if requester_id == promiser_id:
+        return None
+
+    rel = await _ensure_relationship(requester_id, promiser_id, db)
+    rel.intimacy = min(1.0, max(-1.0, rel.intimacy + _PROMISE_FULFILLED))
+    rel.last_interaction = datetime.now(timezone.utc)
+    await db.commit()
+    logger.info("promise_fulfilled", requester=str(requester_id), promiser=str(promiser_id),
+                intimacy=round(rel.intimacy, 3))
     return rel

@@ -267,6 +267,11 @@ async def run_interactive_flow_round(
             except Exception:
                 pass
             try:
+                from app.jobs.agent_lifecycle import _promise_detection_hook
+                await _promise_detection_hook(agent, post, None, {"content": reply_content}, db, llm_caller)
+            except Exception:
+                pass
+            try:
                 from app.jobs.agent_lifecycle import _memory_extraction_hook
                 await _memory_extraction_hook(agent, post, None, {"content": reply_content}, db, llm_caller)
             except Exception:
