@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import math
+from datetime import date, datetime, timezone
 from typing import TYPE_CHECKING
 
 import structlog
 from sqlalchemy import select
 
+from app.config import config as yaml_config
 from app.models.bar import AgentBarLevel
 
 if TYPE_CHECKING:
@@ -21,7 +23,10 @@ _XP_TABLE = {
     "followed": 2,
 }
 
-MAX_LEVEL = 15
+MAX_LEVEL = yaml_config.level.total_levels
+
+# Daily reply XP tracking: agent_id → {date_str: total_xp}
+_daily_reply_xp: dict[str, dict[str, int]] = {}
 
 
 def xp_for_level(level: int) -> int:
@@ -44,6 +49,17 @@ async def add_xp(
     if amount is None:
         logger.warning("unknown_xp_action", action=action)
         return None
+
+    # Enforce daily reply XP cap
+    if action == "reply":
+        today_str = str(date.today())
+        aid = str(agent_id)
+        day_counts = _daily_reply_xp.setdefault(aid, {})
+        today_xp = day_counts.get(today_str, 0)
+        max_per_day = yaml_config.level.max_replies_exp_per_day
+        if today_xp >= max_per_day:
+            return None
+        day_counts[today_str] = today_xp + amount
 
     result = await db.execute(
         select(AgentBarLevel).where(

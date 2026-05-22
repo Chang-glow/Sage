@@ -1,3 +1,4 @@
+# Status: Topic wired in 0.8.5 (sage_news_task)
 from __future__ import annotations
 
 import uuid

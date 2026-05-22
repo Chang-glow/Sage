@@ -498,9 +498,20 @@ async def create_agent(
     manual_input: dict | None = None,
 ) -> Agent:
     from app.skills.llm_manager import create_llm_caller as _create_llm_caller
+    from sqlalchemy import func, select as _select
 
     if llm_caller is None:
         llm_caller = _create_llm_caller()
+
+    # Population cap check
+    total_cap = yaml_config.population.total_cap
+    count_result = await db_session.execute(
+        _select(func.count()).select_from(Agent).where(Agent.status == "active")
+    )
+    active_count = count_result.scalar() or 0
+    if active_count >= total_cap:
+        logger.warning("population_cap_reached", active=active_count, cap=total_cap)
+        raise ValueError(f"Population cap reached: {active_count}/{total_cap}")
 
     if manual_input:
         return await _create_manual_agent(db_session, manual_input)

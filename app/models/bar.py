@@ -1,3 +1,5 @@
+# Status: Bar/BarMember wired in Phase 4/5, AgentBarLevel wired in Phase 7
+# BarRule/BarModLog/Election → future-phase
 from __future__ import annotations
 
 import uuid

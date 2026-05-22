@@ -1,3 +1,4 @@
+# Status: Like/Bookmark/Follow wired in 0.8.2, PrivateMessage wired in 0.8.6
 from __future__ import annotations
 
 import uuid

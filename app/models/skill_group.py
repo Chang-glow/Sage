@@ -1,3 +1,4 @@
+# Status: SkillGroup/SkillGroupMember → future-phase (not yet wired)
 from __future__ import annotations
 
 import uuid

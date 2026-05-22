@@ -131,9 +131,15 @@ async def _run_online_flow_inner(
     db: AsyncSession,
     llm_caller: Callable,
 ) -> None:
+    from datetime import timedelta
+
     agent_id = str(agent.id)
     agent_uuid = agent.id
     agent_nickname = agent.nickname
+
+    # Track online start time for natural max online enforcement
+    agent._online_started_at = datetime.now(timezone.utc)
+    max_online = timedelta(minutes=yaml_config.scheduler.natural_max_online_minutes)
 
     # Mark online
     await db.execute(
@@ -169,6 +175,15 @@ async def _run_online_flow_inner(
         urge_type = None
         urge_intensity = 0.0
 
+    # Check natural max online timeout after step 1
+    if datetime.now(timezone.utc) - agent._online_started_at > max_online:
+        logger.info("agent_natural_timeout", agent_id=agent_id, elapsed_minutes=int(
+            (datetime.now(timezone.utc) - agent._online_started_at).total_seconds() / 60
+        ))
+        await db.execute(update(Agent).where(Agent.id == agent_uuid).values(is_online=False))
+        await db.commit()
+        return
+
     # Step 2: Post urge check
     post_urge_threshold = float(yaml_config.flow.spontaneous_trigger_intensity)
     if urge_intensity and urge_type and urge_intensity > post_urge_threshold:
@@ -181,6 +196,11 @@ async def _run_online_flow_inner(
     await _step4_notifications(agent, db, llm_caller)
 
     # Step 5: Browse & interact
+    if datetime.now(timezone.utc) - agent._online_started_at > max_online:
+        logger.info("agent_natural_timeout_before_browse", agent_id=agent_id)
+        await db.execute(update(Agent).where(Agent.id == agent_uuid).values(is_online=False))
+        await db.commit()
+        return
     await _step5_browse_and_interact(agent, db, llm_caller, summary, bar_selection)
 
     # Step 6: Go offline
