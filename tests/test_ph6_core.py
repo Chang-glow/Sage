@@ -453,10 +453,10 @@ def test_decide_reply_activation():
     assert "offline_life" in components
 
 
-# ─── Integration tests ───
+# ─── Orchestration tests ───
 
 
-async def test_browse_pipeline_integration():
+async def test_browse_pipeline_orchestration():
     """Test the full Step 5 browse pipeline with mock LLM and mocked skill calls."""
     from unittest.mock import patch
     from app.jobs.browse_filter import run_browse_filter
@@ -555,7 +555,7 @@ if __name__ == "__main__":
 
     print("\n=== Async tests ===")
     async_tests = [
-        (test_browse_pipeline_integration, "browse pipeline integration"),  # noqa: E131
+        (test_browse_pipeline_orchestration, "browse pipeline orchestration"),  # noqa: E131
         (test_lifecycle_helpers, "lifecycle helpers"),
     ]
     for fn, name in async_tests:

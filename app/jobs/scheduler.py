@@ -14,7 +14,7 @@ from app.engine.daily_tasks import daily_task_registry
 from app.jobs.agent_lifecycle import run_online_flow, should_wake
 from app.jobs.daily_schedule import generate_all_daily_schedules
 from app.models.agent import Agent, AgentDailySchedule
-from app.skills.llm_manager import create_llm_caller
+from app.skills.llm_manager import create_llm_caller, reset_token_counters
 
 logger = structlog.get_logger()
 
@@ -154,6 +154,11 @@ async def sage_news_task(db, llm_caller: Callable) -> None:
     )
     db.add(post)
     await db.commit()
+
+    from app.engine.data_integrity import verify_insert
+    from app.models.post import Post as PostModel
+    await verify_insert(db, PostModel, post.id)
+
     logger.info("sage_news_published", post_id=str(post.id))
 
 
@@ -336,6 +341,12 @@ async def refresh_topics_task(db, llm_caller: Callable) -> None:
         logger.info("refresh_topics_done", bing_added=bing_added, rss_added=rss_added)
 
 
+async def _reset_token_counters_task(db, llm_caller) -> None:
+    """Daily task: reset in-memory token usage counters at midnight."""
+    reset_token_counters()
+    logger.info("token_counters_reset")
+
+
 # Register daily tasks
 daily_task_registry.register(
     "generate_daily_schedules",
@@ -343,6 +354,7 @@ daily_task_registry.register(
     hour=yaml_config.scheduler.daily_schedule_generation_hour,
     minute=0,
 )
+daily_task_registry.register("reset_token_counters", _reset_token_counters_task, hour=0, minute=5)
 daily_task_registry.register("slang_decay", decay_slangs, hour=0, minute=7)
 daily_task_registry.register("memory_consolidate", consolidate_memories_task, hour=0, minute=13)
 daily_task_registry.register("memory_cleanup", memory_cleanup_task, hour=0, minute=15)

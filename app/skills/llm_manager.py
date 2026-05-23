@@ -9,6 +9,7 @@ import structlog
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from app.config import config as yaml_config, settings
+from app.skills.skill_utils import TokenUsage
 
 logger = structlog.get_logger()
 
@@ -40,12 +41,12 @@ def _track_tokens(agent_id: str | None, prompt_tokens: int, completion_tokens: i
         _token_usage[agent_id] = _token_usage.get(agent_id, 0) + total
 
 
-def check_token_limit(agent_id: str | None = None) -> bool:
+def check_token_limit(agent_id: str | None = None, token_limit_override: int | None = None) -> bool:
     global_limit = yaml_config.security.global_token_limit
     if _token_usage["_global"] >= global_limit:
         return False
     if agent_id:
-        agent_limit = yaml_config.security.default_agent_token_limit
+        agent_limit = token_limit_override if token_limit_override is not None else yaml_config.security.default_agent_token_limit
         if _token_usage.get(agent_id, 0) >= agent_limit:
             return False
     return True
@@ -151,10 +152,23 @@ async def call_llm(
     agent_id: str | None = None,
     skill_id: str | None = None,
     db=None,
-) -> str:
+) -> tuple[str, TokenUsage]:
     sem = _get_semaphore()
     async with sem:
-        if not check_token_limit(agent_id):
+        token_limit_override = None
+        if db is not None and agent_id:
+            try:
+                from uuid import UUID as _UUID
+                from sqlalchemy import select as _select
+                from app.models.agent import Agent
+                result = await db.execute(
+                    _select(Agent.token_limit_override).where(Agent.id == _UUID(agent_id))
+                )
+                token_limit_override = result.scalar_one_or_none()
+            except Exception:
+                pass
+
+        if not check_token_limit(agent_id, token_limit_override=token_limit_override):
             raise RuntimeError(
                 f"Token limit exceeded for agent={agent_id or 'global'}"
             )
@@ -186,17 +200,17 @@ async def call_llm(
                               "skill_id": skill_id})
             except Exception:
                 logger.warning("record_token_usage_failed", agent_id=agent_id)
-        return content
+        return content, TokenUsage(prompt_tokens=pt, completion_tokens=ct)
 
 
 class MockLLM:
     def __init__(self, responses: dict[str, str] | None = None):
         self.responses = responses or _default_mock_responses()
 
-    async def call(self, prompt: str, model: str = "", *, skill_id: str | None = None, agent_id: str | None = None, db=None) -> str:
+    async def call(self, prompt: str, model: str = "", *, skill_id: str | None = None, agent_id: str | None = None, db=None) -> tuple[str, TokenUsage]:
         if skill_id and skill_id in self.responses:
-            return self.responses[skill_id]
-        return '{"status": "ok", "result": "mock_response"}'
+            return self.responses[skill_id], TokenUsage(0, 0)
+        return '{"status": "ok", "result": "mock_response"}', TokenUsage(0, 0)
 
 
 def _default_mock_responses() -> dict[str, str]:

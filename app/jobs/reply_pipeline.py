@@ -391,6 +391,11 @@ async def generate_reply(
     from app.skills.skill_utils import process_media_placeholders
     content = await process_media_placeholders(content, llm_caller, agent_id)
 
+    # stealth_mode: no image posting — strip [img: ...] placeholders
+    if agent.stealth_mode:
+        import re
+        content = re.sub(r'\[img:\s*[^\]]*\]', '', content).strip()
+
     # 5. Insert Reply record
     reply = Reply(
         post_id=post.id,
@@ -439,6 +444,10 @@ async def generate_reply(
     from app.jobs.level_engine import add_xp
     if bar_id:
         await add_xp(agent_id_uuid, bar_id, "reply", db)
+
+    # Level: post author gets XP for being replied to
+    if post_author_id_val and str(post_author_id_val) != agent_id and bar_id:
+        await add_xp(post_author_id_val, bar_id, "post_replied", db, reference_id=post_id)
 
     return {
         "reply_id": str(reply_id),

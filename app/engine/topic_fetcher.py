@@ -229,6 +229,9 @@ async def refresh_topic_pool_from_rss(
 
     if total > 0:
         await db.commit()
+        from app.engine.data_integrity import verify_count
+        from app.models.external_topic import Topic
+        await verify_count(db, Topic, total, where_col="source", where_val="rss")
         logger.info("rss_topic_pool_refreshed", added=total, feeds=len(feeds))
 
     return total
@@ -268,6 +271,9 @@ async def refresh_topic_pool(
             pass
 
     await db.commit()
+    from app.engine.data_integrity import verify_count
+    from app.models.external_topic import Topic
+    await verify_count(db, Topic, total, where_col="source", where_val="web")
     logger.info("bing_topic_pool_refreshed", added=total, queries=len(queries))
 
     return total

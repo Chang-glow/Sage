@@ -268,7 +268,7 @@ def test_inject_entries_multiple_positions():
 
 
 # ═══════════════════════════════════════════════════
-# Group F: assemble_prompt integration (async)
+# Group F: assemble_prompt (async)
 # ═══════════════════════════════════════════════════
 
 def test_assemble_prompt_with_constant_entry():
@@ -393,6 +393,8 @@ def test_build_agent_context_includes_persona_prompt():
         income_level = "3k-5k"
         school_or_company = ""
         chronotype = "normal"
+        distrust_tags = []
+        trust_tags = []
 
     ctx = build_agent_context(FakeAgent)
     assert "agent_persona_prompt" in ctx
@@ -462,14 +464,14 @@ def test_extract_text_from_context():
 
 
 # ═══════════════════════════════════════════════════
-# Group I: Executor with world book integration (async)
+# Group I: Executor with world book (async)
 # ═══════════════════════════════════════════════════
 
 def test_execute_with_world_book_injection():
     async def run():
         from app.skills.executor import execute
         from app.skills.registry import registry
-        from app.skills.skill_utils import SkillDefinition
+        from app.skills.skill_utils import SkillDefinition, TokenUsage
 
         sd = SkillDefinition(
             skill_id="test_wb_inject", name="T", model_type="便宜",
@@ -480,8 +482,8 @@ def test_execute_with_world_book_injection():
             mock_db = AsyncMock()
             mock_db.commit = AsyncMock()
 
-            async def mock_caller(prompt, model, *, skill_id=None):
-                return '{"result": "ok"}'
+            async def mock_caller(prompt, model, *, skill_id=None, agent_id=None, db=None):
+                return '{"result": "ok"}', TokenUsage(0, 0)
 
             with patch("app.engine.world_book_engine.assemble_prompt") as mock_assemble:
                 mock_assemble.return_value = "[世界书]\n注入内容\n[/世界书]\n\nhello world"
@@ -501,7 +503,7 @@ def test_execute_without_db_no_injection():
     async def run():
         from app.skills.executor import execute
         from app.skills.registry import registry
-        from app.skills.skill_utils import SkillDefinition
+        from app.skills.skill_utils import SkillDefinition, TokenUsage
 
         sd = SkillDefinition(
             skill_id="test_no_db", name="T", model_type="便宜",
@@ -509,8 +511,8 @@ def test_execute_without_db_no_injection():
         )
         registry._skills["test_no_db"] = sd
         try:
-            async def mock_caller(prompt, model, *, skill_id=None):
-                return '{"x": 1}'
+            async def mock_caller(prompt, model, *, skill_id=None, agent_id=None, db=None):
+                return '{"x": 1}', TokenUsage(0, 0)
 
             result = await execute("test_no_db", {"x": "1"}, llm_caller=mock_caller)
             assert result.status == "success"
@@ -525,7 +527,7 @@ def test_execute_extracts_world_book_entry():
     async def run():
         from app.skills.executor import execute
         from app.skills.registry import registry
-        from app.skills.skill_utils import SkillDefinition
+        from app.skills.skill_utils import SkillDefinition, TokenUsage
 
         sd = SkillDefinition(
             skill_id="test_wb_extract", name="T", model_type="便宜",
@@ -536,8 +538,8 @@ def test_execute_extracts_world_book_entry():
             mock_db = AsyncMock()
             mock_db.commit = AsyncMock()
 
-            async def mock_caller(prompt, model, *, skill_id=None):
-                return '{"result": "ok", "world_book_entry": {"title": "e1", "content": "c1"}}'
+            async def mock_caller(prompt, model, *, skill_id=None, agent_id=None, db=None):
+                return '{"result": "ok", "world_book_entry": {"title": "e1", "content": "c1"}}', TokenUsage(0, 0)
 
             result = await execute(
                 "test_wb_extract", {}, llm_caller=mock_caller, db=mock_db,
@@ -607,11 +609,12 @@ def test_persona_summary_mock_execution():
     async def run():
         from app.skills.executor import execute
         from app.skills.registry import registry
+        from app.skills.skill_utils import TokenUsage
 
         registry.reload()
 
-        async def mock_caller(prompt, model, *, skill_id=None):
-            return '{"persona_prompt": "我是测试用户，一个生活在平陵市的普通人。", "world_book_entry": {"scope": "character", "title": "人设-测试", "content": "我是测试用户...", "trigger_type": "constant", "trigger_keys": [], "priority": 10, "position": "after_char", "recursive": false}}'
+        async def mock_caller(prompt, model, *, skill_id=None, agent_id=None, db=None):
+            return '{"persona_prompt": "我是测试用户，一个生活在平陵市的普通人。", "world_book_entry": {"scope": "character", "title": "人设-测试", "content": "我是测试用户...", "trigger_type": "constant", "trigger_keys": [], "priority": 10, "position": "after_char", "recursive": false}}', TokenUsage(0, 0)
 
         ctx = {
             "agent_name": "测试", "agent_age": "25", "agent_gender": "男",

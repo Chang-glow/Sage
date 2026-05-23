@@ -70,6 +70,10 @@ def should_wake(agent: Agent, schedule, now: datetime) -> bool:
     weekday = now.strftime("%A").lower()[:3]
     is_weekend = weekday in ("sat", "sun")
 
+    # stealth_mode: auto-disable on weekends
+    if agent.stealth_mode and is_weekend:
+        return False
+
     # 找到匹配的窗口
     matching_weight = None
     for win in active_windows:
@@ -87,7 +91,15 @@ def should_wake(agent: Agent, schedule, now: datetime) -> bool:
 
     # 概率判定
     threshold = yaml_config.scheduler.wake_probability_threshold
-    probability = matching_weight * random.uniform(0.7, 1.0)
+    if agent.stealth_mode:
+        # Compressed to late-night fragments only: 23:00-01:00 and 04:00-05:00
+        in_fragment1 = _time_in_window(local_h, local_m, "23:00", "01:00")
+        in_fragment2 = _time_in_window(local_h, local_m, "04:00", "05:00")
+        if not (in_fragment1 or in_fragment2):
+            return False
+        probability = matching_weight * random.uniform(0.1, 0.3)
+    else:
+        probability = matching_weight * random.uniform(0.7, 1.0)
     return probability > threshold
 
 
@@ -450,6 +462,9 @@ async def _step4_notifications(agent: Agent, db: AsyncSession, llm_caller: Calla
     """Pull unread notifications, prioritize, mark as read.
     For Sage agent, also handle @mention notifications via sage_reply skill.
     """
+    if agent.stealth_mode:
+        return
+
     agent_id = str(agent.id)
 
     result = await db.execute(
@@ -577,6 +592,8 @@ async def _step5_browse_and_interact(
 
     daily_reply_count = await count_today_replies(agent, db)
     max_daily_replies = getattr(agent.schedule, 'max_flow_per_day', 15) if agent.schedule else 15
+    if agent.stealth_mode:
+        max_daily_replies = max(1, max_daily_replies // 5)
     balance_tracker = SelfBalanceTracker.for_agent(agent_id)
 
     logger.info("browse_start", agent_id=agent_id, bars=len(all_bars_to_browse),

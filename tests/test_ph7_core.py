@@ -27,6 +27,15 @@ class FakeAgent:
         self.persona_prompt = None
         self.income_level = None
         self.school_or_company = None
+        self.distrust_tags = []
+        self.trust_tags = []
+        self.status = "active"
+        self.stealth_mode = False
+        self.is_online = False
+        self.bio = ""
+        self.avatar_prompt = ""
+        self.notification_settings = {}
+        self.registered_at = datetime.now(timezone.utc)
         for k, v in kwargs.items():
             if k not in ("personality_vector", "interests"):
                 setattr(self, k, v)
@@ -484,7 +493,168 @@ def test_get_agent_level_max():
     asyncio.run(run())
 
 
-# ─── Integration: reply → media → meme → social → notification → level ───
+# ─── Item 1: 帖主被回复 XP ───
+
+
+def test_post_replied_xp_table_entry():
+    """v0.12.7: _XP_TABLE must include post_replied = 1."""
+    from app.jobs.level_engine import _XP_TABLE
+
+    assert "post_replied" in _XP_TABLE, "post_replied should be in _XP_TABLE"
+    assert _XP_TABLE["post_replied"] == 1
+
+
+def test_post_replied_xp_adds_to_author():
+    """add_xp('post_replied') should give +1 XP to the post author."""
+    from app.jobs.level_engine import add_xp
+    import asyncio
+
+    async def run():
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none = MagicMock(return_value=None)
+        mock_db.execute = AsyncMock(return_value=mock_result)
+        mock_db.add = MagicMock()
+        mock_db.flush = AsyncMock()
+        mock_db.commit = AsyncMock()
+
+        author_id = uuid.uuid4()
+        bar_id = uuid.uuid4()
+        post_id = str(uuid.uuid4())
+
+        result = await add_xp(author_id, bar_id, "post_replied", mock_db, reference_id=post_id)
+        # add_xp returns None if no level-up, not None means it was processed
+        assert result is None  # no level-up from 1 XP
+        assert mock_db.add.called, "should create AgentBarLevel record"
+
+    asyncio.run(run())
+
+
+def test_post_replied_xp_daily_cap_per_post():
+    """Same post, same day: 11th reply should be capped and return None."""
+    from app.jobs.level_engine import add_xp
+    import asyncio
+
+    async def run():
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        fake_record = MagicMock()
+        fake_record.level = 1
+        fake_record.exp = 0
+        mock_result.scalar_one_or_none = MagicMock(return_value=fake_record)
+        mock_db.execute = AsyncMock(return_value=mock_result)
+        mock_db.add = MagicMock()
+        mock_db.flush = AsyncMock()
+        mock_db.commit = AsyncMock()
+
+        author_id = uuid.uuid4()
+        bar_id = uuid.uuid4()
+        post_id = str(uuid.uuid4())
+
+        # First 10 calls should succeed (no cap hit)
+        for i in range(10):
+            result = await add_xp(author_id, bar_id, "post_replied", mock_db, reference_id=post_id)
+            assert result is None, f"call {i+1} should not level up"
+
+        # 11th call should be capped
+        result = await add_xp(author_id, bar_id, "post_replied", mock_db, reference_id=post_id)
+        assert result is None, "capped call returns None"
+        # exp should still be 10 (not 11) — the 11th call was rejected before adding
+        assert fake_record.exp == 10, f"exp should be 10 after cap, got {fake_record.exp}"
+
+    asyncio.run(run())
+
+
+def test_post_replied_xp_different_posts_independent_caps():
+    """Cap for post A should not affect post B."""
+    from app.jobs.level_engine import add_xp, _daily_post_author_xp
+    import asyncio
+
+    async def run():
+        # Clear tracking dicts before test
+        _daily_post_author_xp.clear()
+
+        mock_db = AsyncMock()
+        fake_record = MagicMock()
+        fake_record.level = 1
+        fake_record.exp = 0
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none = MagicMock(return_value=fake_record)
+        mock_db.execute = AsyncMock(return_value=mock_result)
+        mock_db.add = MagicMock()
+        mock_db.flush = AsyncMock()
+        mock_db.commit = AsyncMock()
+
+        author_id = uuid.uuid4()
+        bar_id = uuid.uuid4()
+        post_a = str(uuid.uuid4())
+        post_b = str(uuid.uuid4())
+
+        # Fill post A cap
+        for _ in range(10):
+            await add_xp(author_id, bar_id, "post_replied", mock_db, reference_id=post_a)
+
+        # Post B should still work
+        result = await add_xp(author_id, bar_id, "post_replied", mock_db, reference_id=post_b)
+        assert result is None, "post B should still get XP"
+        assert fake_record.exp >= 11, f"post B should add XP beyond post A cap, exp={fake_record.exp}"
+
+    asyncio.run(run())
+
+
+def test_post_replied_xp_self_reply_skipped():
+    """generate_reply should NOT call add_xp('post_replied') when replying to own post."""
+    from app.jobs.reply_pipeline import generate_reply, ReplyDecisionResult
+    import asyncio
+
+    async def run():
+        agent = FakeAgent()
+        post = FakePost()
+        # Same author and agent
+        post.author_id = agent.id
+        post.bar_id = uuid.uuid4()
+        decision = ReplyDecisionResult(
+            will_reply=True, reason="test", suggested_tone="友好",
+            active_persona="peacemaker",
+        )
+        mock_db = AsyncMock()
+        mock_db.add = MagicMock()
+        mock_db.commit = AsyncMock()
+        mock_llm = AsyncMock()
+
+        with patch("app.jobs.reply_pipeline.execute") as mock_exec:
+            mock_result = FakeSkillResult(parsed={"content": "自我回复"})
+            mock_exec.return_value = mock_result
+
+            with patch("app.jobs.reply_pipeline.build_relationship_context") as mock_rel:
+                mock_rel.return_value = {"relationship_attitude": "中立", "relationship_intimacy": 0.0}
+
+                with patch("app.skills.skill_utils.process_media_placeholders") as mock_media:
+                    mock_media.return_value = "自我回复"
+
+                    with patch("app.plugins.plugin_manager.post_content", new_callable=AsyncMock):
+                        with patch("app.jobs.social_engine.adjust_after_reply"):
+                            with patch("app.jobs.notification_engine.notify_reply"):
+                                with patch("app.jobs.notification_engine.notify_mentions"):
+                                    with patch("app.jobs.level_engine.add_xp") as mock_xp:
+                                        mock_db.execute = AsyncMock(return_value=MagicMock(
+                                            scalars=lambda: MagicMock(all=lambda: [])
+                                        ))
+
+                                        await generate_reply(agent, post, decision, mock_db, mock_llm)
+
+                                        # add_xp should have been called for "reply" but NOT "post_replied"
+                                        post_replied_calls = [
+                                            c for c in mock_xp.call_args_list
+                                            if len(c.args) >= 3 and c.args[2] == "post_replied"
+                                        ]
+                                        assert len(post_replied_calls) == 0, \
+                                            "should not call add_xp('post_replied') for self-reply"
+
+    asyncio.run(run())
+
+
+# ─── Orchestration: reply → media → meme → social → notification → level ───
 
 
 def test_generate_reply_calls_all_engines():

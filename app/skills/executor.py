@@ -11,7 +11,7 @@ import structlog
 from app.config import config as yaml_config
 from app.skills.llm_manager import call_llm
 from app.skills.registry import registry
-from app.skills.skill_utils import SkillResult
+from app.skills.skill_utils import SkillResult, TokenUsage
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -82,7 +82,7 @@ async def execute(
     caller = llm_caller or call_llm
 
     try:
-        raw_response = await caller(prompt, model, skill_id=skill_id, agent_id=agent_id, db=db)
+        raw_response, token_usage = await caller(prompt, model, skill_id=skill_id, agent_id=agent_id, db=db)
     except Exception as e:
         logger.warning("llm_call_failed", skill_id=skill_id, model=model, error=str(e))
         # 主力模型失败 → 用便宜模型重试一次
@@ -90,7 +90,7 @@ async def execute(
             cheap_model = _resolve_model("便宜")
             if cheap_model != model:
                 try:
-                    raw_response = await caller(prompt, cheap_model, skill_id=skill_id, agent_id=agent_id, db=db)
+                    raw_response, token_usage = await caller(prompt, cheap_model, skill_id=skill_id, agent_id=agent_id, db=db)
                     model = cheap_model
                 except Exception as e2:
                     logger.error("llm_fallback_failed", skill_id=skill_id, model=cheap_model, error=str(e2))
@@ -161,6 +161,7 @@ async def execute(
             raw_response=raw_response,
             parsed=parsed,
             model=model,
+            tokens_used=token_usage.total,
             duration_ms=(time.monotonic() - t0) * 1000,
             status="success",
             world_book_entry=wb_entry,
@@ -173,6 +174,7 @@ async def execute(
             raw_response=raw_response,
             parsed=raw_response,
             model=model,
+            tokens_used=token_usage.total,
             duration_ms=(time.monotonic() - t0) * 1000,
             status="parse_failure",
             error=str(e),

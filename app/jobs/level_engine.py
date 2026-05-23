@@ -21,12 +21,16 @@ _XP_TABLE = {
     "liked": 1,
     "login": 1,
     "followed": 2,
+    "post_replied": 1,
 }
 
 MAX_LEVEL = yaml_config.level.total_levels
 
 # Daily reply XP tracking: agent_id → {date_str: total_xp}
 _daily_reply_xp: dict[str, dict[str, int]] = {}
+
+# Post-author reply XP tracking: post_id → {date_str: total_xp}
+_daily_post_author_xp: dict[str, dict[str, int]] = {}
 
 
 def xp_for_level(level: int) -> int:
@@ -43,6 +47,7 @@ async def add_xp(
     bar_id,
     action: str,
     db: "AsyncSession",
+    reference_id: str | None = None,
 ) -> int | None:
     """Add XP for an action and return new level if leveled up, else None."""
     amount = _XP_TABLE.get(action)
@@ -57,6 +62,17 @@ async def add_xp(
         day_counts = _daily_reply_xp.setdefault(aid, {})
         today_xp = day_counts.get(today_str, 0)
         max_per_day = yaml_config.level.max_replies_exp_per_day
+        if today_xp >= max_per_day:
+            return None
+        day_counts[today_str] = today_xp + amount
+
+    # Enforce daily post-author reply XP cap (per post, per day)
+    if action == "post_replied" and reference_id:
+        today_str = str(date.today())
+        pid = str(reference_id)
+        day_counts = _daily_post_author_xp.setdefault(pid, {})
+        today_xp = day_counts.get(today_str, 0)
+        max_per_day = yaml_config.level.post_reply_exp_cap_per_day
         if today_xp >= max_per_day:
             return None
         day_counts[today_str] = today_xp + amount

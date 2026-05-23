@@ -482,7 +482,7 @@ async def validate_agent(draft: AgentDraft, llm_caller: Callable) -> bool:
         f"是否有明显矛盾？仅回复 YES 或 NO。"
     )
     try:
-        resp = await llm_caller(prompt, yaml_config.llm.default_cheap_model)
+        resp, _ = await llm_caller(prompt, yaml_config.llm.default_cheap_model)
         return "NO" in resp.upper()
     except Exception as e:
         logger.warning("validate_agent_error", error=str(e))

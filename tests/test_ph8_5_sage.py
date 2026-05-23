@@ -102,7 +102,11 @@ def test_sage_news_generates_post():
         topic_result = MagicMock()
         topic_result.scalars.return_value.all.return_value = []
 
-        mock_db.execute.side_effect = [sage_result, topic_result]
+        # Mock verify_insert query (data integrity check after post commit)
+        verify_result = MagicMock()
+        verify_result.scalar_one.return_value = 1
+
+        mock_db.execute.side_effect = [sage_result, topic_result, verify_result]
 
         with patch("app.skills.executor.execute") as mock_exec:
             mock_exec_result = MagicMock()

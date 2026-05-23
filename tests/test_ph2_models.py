@@ -241,6 +241,48 @@ def test_agent_model_has_expected_fields():
     assert a.personality_vector == {"peacemaker": 0.8}
 
 
+def test_seed_topics_structure():
+    """SEED_TOPICS 列表中每条数据都有 title 和 category。"""
+    from scripts.seed_topics import SEED_TOPICS
+    assert isinstance(SEED_TOPICS, list)
+    assert len(SEED_TOPICS) > 0
+    for item in SEED_TOPICS:
+        assert isinstance(item, dict), f"每条应为 dict，实际 {type(item)}"
+        assert "title" in item, f"缺少 title: {item}"
+        assert "category" in item, f"缺少 category: {item}"
+        assert isinstance(item["title"], str) and len(item["title"]) > 0
+        assert isinstance(item["category"], str) and len(item["category"]) > 0
+
+
+def test_seed_topics_covers_all_categories():
+    """10 个分类全部覆盖。"""
+    from scripts.seed_topics import SEED_TOPICS
+    expected = {
+        "国际局势", "国内热点", "娱乐新闻", "二次元版", "游戏版",
+        "商业版", "当地新闻", "文学版", "科创科普版", "教育版",
+    }
+    actual = {item["category"] for item in SEED_TOPICS}
+    missing = expected - actual
+    assert not missing, f"缺少分类: {missing}"
+    extra = actual - expected
+    assert not extra, f"未知分类: {extra}"
+
+
+def test_seed_topics_count():
+    """种子话题在 20-30 条之间。"""
+    from scripts.seed_topics import SEED_TOPICS
+    assert 20 <= len(SEED_TOPICS) <= 30, f"应有 20-30 条，实际 {len(SEED_TOPICS)}"
+
+
+def test_agent_token_limit_override_field():
+    """Agent 模型有 token_limit_override 字段，可为 None 或整数值。"""
+    from app.models.agent import Agent
+    a1 = Agent(nickname="test", age=25, gender="男", token_limit_override=5000)
+    assert a1.token_limit_override == 5000
+    a2 = Agent(nickname="test2", age=30, gender="女")
+    assert a2.token_limit_override is None
+
+
 # ─── Run all ───
 
 if __name__ == "__main__":

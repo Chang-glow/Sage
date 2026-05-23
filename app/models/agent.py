@@ -51,6 +51,7 @@ class Agent(Base):
     distrust_tags: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(JSON)
     trust_tags: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(JSON)
     reputation: Mapped[float] = mapped_column(Float, server_default=text("0.0"), default=0.0)
+    token_limit_override: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     persona_prompt: Mapped[Optional[str]] = mapped_column(String)
     status: Mapped[str] = mapped_column(
         String(20), server_default=text("'active'"), default="active"

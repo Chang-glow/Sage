@@ -201,6 +201,11 @@ async def run_interactive_flow_round(
     reply_content = result.parsed.get("reply_content", "")
     tone = result.parsed.get("tone", "中立")
 
+    # stealth_mode: no image posting
+    if agent.stealth_mode:
+        import re
+        reply_content = re.sub(r'\[img:\s*[^\]]*\]', '', reply_content).strip()
+
     if not reply_content.strip():
         should_continue = False
 
@@ -253,6 +258,11 @@ async def run_interactive_flow_round(
         bar_id = getattr(post, "bar_id", None)
         if bar_id:
             await add_xp(agent.id, bar_id, "reply", db)
+
+        # Level: post author gets XP for being replied to
+        post_author_id = getattr(post, "author_id", None)
+        if post_author_id and str(post_author_id) != str(agent.id) and bar_id:
+            await add_xp(post_author_id, bar_id, "post_replied", db, reference_id=str(post.id))
 
         # Flow ended: call follow_hook + dm_hook + memory_extraction directly (doesn't go through BrowseHook loop)
         if flow_ended:

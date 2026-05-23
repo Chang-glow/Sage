@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import Any, NamedTuple, TYPE_CHECKING
 
 from sqlalchemy import select
 
@@ -37,6 +37,15 @@ class SkillResult:
     error: str | None = None
     world_book_entry: dict[str, Any] | None = None
     remove_world_book_entry: str | None = None
+
+
+class TokenUsage(NamedTuple):
+    prompt_tokens: int
+    completion_tokens: int
+
+    @property
+    def total(self) -> int:
+        return self.prompt_tokens + self.completion_tokens
 
 
 def build_agent_context(agent) -> dict[str, Any]:

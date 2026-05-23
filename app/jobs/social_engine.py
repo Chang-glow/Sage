@@ -82,9 +82,11 @@ async def adjust_after_reply(
             rel.attitude = "neutral"
 
     rel.last_interaction = datetime.now(timezone.utc)
+    intimacy_val = rel.intimacy
+    attitude_val = rel.attitude
     await db.commit()
     logger.info("relationship_adjusted", agent_id=str(agent_id), target_id=str(target_id),
-                intimacy=round(rel.intimacy, 3), attitude=rel.attitude, trigger="reply")
+                intimacy=round(intimacy_val, 3), attitude=attitude_val, trigger="reply")
     return rel
 
 
@@ -176,7 +178,6 @@ async def adjust_after_promise_broken(
         })
         promiser.distrust_tags = tags
 
-    await db.commit()
     logger.info("promise_broken", requester=str(requester_id), promiser=str(promiser_id),
                 intimacy=round(rel.intimacy, 3))
     return rel

@@ -17,15 +17,19 @@ async def execute_internal_search(query: str, db) -> list[dict[str, Any]]:
     like = f"%{q}%"
 
     from sqlalchemy import or_, select
+    from sqlalchemy.orm import selectinload
     from app.models.post import Post, Reply
     from app.models.bar import Bar
     from app.models.agent import Agent
 
     results: list[dict[str, Any]] = []
 
-    # Search posts
+    # Search posts (eager-load relationships for async safety)
     post_result = await db.execute(
-        select(Post).where(
+        select(Post).options(
+            selectinload(Post.author),
+            selectinload(Post.bar),
+        ).where(
             or_(Post.title.ilike(like), Post.content.ilike(like))
         ).limit(10)
     )

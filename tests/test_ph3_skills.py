@@ -221,6 +221,8 @@ def test_build_agent_context_basic():
         income_level = None
         school_or_company = None
         chronotype = "normal"
+        distrust_tags = None
+        trust_tags = None
 
     ctx = build_agent_context(FakeAgent)
     assert ctx["agent_name"] == "测试"
@@ -246,6 +248,8 @@ def test_build_agent_context_none_fields():
         income_level = None
         school_or_company = None
         chronotype = "normal"
+        distrust_tags = None
+        trust_tags = None
 
     ctx = build_agent_context(FakeAgent)
     assert ctx["agent_occupation"] == "未知"
@@ -270,6 +274,8 @@ def test_build_agent_context_empty_personality():
         income_level = None
         school_or_company = None
         chronotype = "normal"
+        distrust_tags = None
+        trust_tags = None
 
     ctx = build_agent_context(FakeAgent)
     assert ctx["agent_personality"] == "普通"
@@ -503,8 +509,9 @@ def test_mock_llm_call_known_skill():
 
     async def run():
         mock = MockLLM()
-        resp = await mock.call("prompt", "model", skill_id="reply_decision")
+        resp, usage = await mock.call("prompt", "model", skill_id="reply_decision")
         assert "will_reply" in resp
+        assert usage.total == 0
 
     asyncio.run(run())
 
@@ -515,8 +522,9 @@ def test_mock_llm_call_unknown_skill():
 
     async def run():
         mock = MockLLM()
-        resp = await mock.call("prompt", "model", skill_id="unknown")
+        resp, usage = await mock.call("prompt", "model", skill_id="unknown")
         assert "mock_response" in resp
+        assert usage.total == 0
 
     asyncio.run(run())
 
@@ -559,7 +567,7 @@ def test_execute_render_failure():
 def test_execute_success_with_mock_llm():
     from app.skills.executor import execute
     from app.skills.registry import registry
-    from app.skills.skill_utils import SkillDefinition
+    from app.skills.skill_utils import SkillDefinition, TokenUsage
     import asyncio
 
     async def run():
@@ -567,8 +575,8 @@ def test_execute_success_with_mock_llm():
                              prompt_template="hello {name}", output_format="JSON")
         registry._skills["test_success"] = sd
         try:
-            async def mock_caller(prompt, model, *, skill_id=None):
-                return '{"result": "ok"}'
+            async def mock_caller(prompt, model, *, skill_id=None, agent_id=None, db=None):
+                return '{"result": "ok"}', TokenUsage(0, 0)
 
             result = await execute("test_success", {"name": "world"}, llm_caller=mock_caller)
             assert result.status == "success"
@@ -582,7 +590,7 @@ def test_execute_success_with_mock_llm():
 def test_execute_parse_failure():
     from app.skills.executor import execute
     from app.skills.registry import registry
-    from app.skills.skill_utils import SkillDefinition
+    from app.skills.skill_utils import SkillDefinition, TokenUsage
     import asyncio
 
     async def run():
@@ -590,13 +598,120 @@ def test_execute_parse_failure():
                              prompt_template="say {word}", output_format="JSON")
         registry._skills["test_parse"] = sd
         try:
-            async def mock_caller(prompt, model, *, skill_id=None):
-                return "not json at all"
+            async def mock_caller(prompt, model, *, skill_id=None, agent_id=None, db=None):
+                return "not json at all", TokenUsage(0, 0)
 
             result = await execute("test_parse", {"word": "hi"}, llm_caller=mock_caller)
             assert result.status == "parse_failure"
         finally:
             registry._skills.pop("test_parse", None)
+
+    asyncio.run(run())
+
+
+def test_reset_token_counters_daily_task_registered():
+    """reset_token_counters 已注册为 DailyTask，hour=0, minute=5。"""
+    import app.jobs.scheduler  # noqa: F401 — 触发注册
+    from app.engine.daily_tasks import daily_task_registry
+    due = daily_task_registry.get_due(0, 5)
+    names = [name for name, _ in due]
+    assert "reset_token_counters" in names, f"未在 0:05 找到 reset_token_counters，实际: {names}"
+
+
+def test_check_token_limit_with_override():
+    """check_token_limit 有 override 时优先使用 override 值。"""
+    from app.skills.llm_manager import check_token_limit, _track_tokens, reset_token_counters
+    import app.skills.llm_manager as llm_mod
+
+    reset_token_counters()
+    _track_tokens("agent-x", 50, 0)
+
+    orig = llm_mod.yaml_config
+    try:
+        fake = MagicMock()
+        fake.security.global_token_limit = 10000
+        fake.security.default_agent_token_limit = 100
+        llm_mod.yaml_config = fake
+        # override=30, 已用 50 >= 30, should be over limit
+        assert check_token_limit("agent-x", token_limit_override=30) is False
+        # override=None, fallback to default=100, 已用 50 < 100, under limit
+        assert check_token_limit("agent-x", token_limit_override=None) is True
+        # override=200, 已用 50 < 200, under limit
+        assert check_token_limit("agent-x", token_limit_override=200) is True
+    finally:
+        llm_mod.yaml_config = orig
+
+
+def test_token_usage_named_tuple():
+    """TokenUsage.total 属性正确求和。"""
+    from app.skills.skill_utils import TokenUsage
+    tu = TokenUsage(prompt_tokens=120, completion_tokens=80)
+    assert tu.prompt_tokens == 120
+    assert tu.completion_tokens == 80
+    assert tu.total == 200
+
+
+def test_execute_propagates_tokens_used():
+    """execute() 将 call_llm 返回的 TokenUsage 传播到 SkillResult.tokens_used。"""
+    from app.skills.executor import execute
+    from app.skills.registry import registry
+    from app.skills.skill_utils import SkillDefinition, TokenUsage
+    import asyncio
+
+    async def run():
+        sd = SkillDefinition(skill_id="test_tokens", name="T", model_type="便宜",
+                             prompt_template="hello {name}", output_format="JSON")
+        registry._skills["test_tokens"] = sd
+        try:
+            async def mock_caller(prompt, model, *, skill_id=None, agent_id=None, db=None):
+                return '{"x": 1}', TokenUsage(prompt_tokens=100, completion_tokens=50)
+
+            result = await execute("test_tokens", {"name": "world"}, llm_caller=mock_caller)
+            assert result.status == "success"
+            assert result.tokens_used == 150
+            assert result.parsed == {"x": 1}
+        finally:
+            registry._skills.pop("test_tokens", None)
+
+    asyncio.run(run())
+
+
+def test_execute_tokens_used_zero_on_llm_failure():
+    """LLM 调用失败时 tokens_used 保持 0。"""
+    from app.skills.executor import execute
+    from app.skills.registry import registry
+    from app.skills.skill_utils import SkillDefinition
+    import asyncio
+
+    async def run():
+        sd = SkillDefinition(skill_id="test_fail", name="T", model_type="便宜",
+                             prompt_template="hi {name}", output_format="JSON")
+        registry._skills["test_fail"] = sd
+        try:
+            async def mock_caller(prompt, model, *, skill_id=None, agent_id=None, db=None):
+                raise RuntimeError("API down")
+
+            result = await execute("test_fail", {"name": "x"}, llm_caller=mock_caller)
+            assert result.status == "llm_failure"
+            assert result.tokens_used == 0
+        finally:
+            registry._skills.pop("test_fail", None)
+
+    asyncio.run(run())
+
+
+def test_mock_llm_returns_token_usage():
+    """MockLLM.call 返回 (content, TokenUsage) 元组。"""
+    from app.skills.llm_manager import MockLLM
+    from app.skills.skill_utils import TokenUsage
+    import asyncio
+
+    async def run():
+        mock = MockLLM()
+        content, usage = await mock.call("prompt", "model", skill_id="reply_decision")
+        assert "will_reply" in content
+        assert usage.total == 0
+        assert isinstance(usage.prompt_tokens, int)
 
     asyncio.run(run())
 
