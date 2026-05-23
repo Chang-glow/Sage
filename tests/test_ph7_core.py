@@ -803,6 +803,87 @@ def test_perform_checkin_streak_break():
     asyncio.run(run())
 
 
+# ─── Item v0.12.9: P2 副作用接线 ───
+
+
+def test_adjust_after_bookmark_exists():
+    """adjust_after_bookmark should be importable from social_engine."""
+    from app.jobs.social_engine import adjust_after_bookmark
+    assert callable(adjust_after_bookmark)
+
+
+def test_adjust_after_deep_flow_exists():
+    """adjust_after_deep_flow should be importable from social_engine."""
+    from app.jobs.social_engine import adjust_after_deep_flow
+    assert callable(adjust_after_deep_flow)
+
+
+def test_adjust_after_criticized_exists():
+    """adjust_after_criticized should be importable from social_engine."""
+    from app.jobs.social_engine import adjust_after_criticized
+    assert callable(adjust_after_criticized)
+
+
+def test_adjust_after_bookmark_self_skip():
+    """Bookmarking own post should be a no-op (agent_id == target_id)."""
+    from app.jobs.social_engine import adjust_after_bookmark
+    import asyncio
+
+    async def run():
+        mock_db = AsyncMock()
+        agent_id = uuid.uuid4()
+        result = await adjust_after_bookmark(agent_id, agent_id, mock_db)
+        assert result is None
+
+    asyncio.run(run())
+
+
+def test_adjust_after_criticized_intimacy():
+    """Criticized should decrease intimacy by -0.03."""
+    from app.jobs.social_engine import adjust_after_criticized
+    import asyncio
+
+    async def run():
+        mock_db = AsyncMock()
+        fake_rel = MagicMock()
+        fake_rel.intimacy = 0.5
+        fake_rel.attitude = "中立"
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none = MagicMock(return_value=fake_rel)
+        mock_db.execute = AsyncMock(return_value=mock_result)
+        mock_db.commit = AsyncMock()
+
+        agent_id = uuid.uuid4()
+        target_id = uuid.uuid4()
+        await adjust_after_criticized(agent_id, target_id, mock_db)
+
+        # -0.03 should have been applied: 0.5 + (-0.03) = 0.47
+        assert fake_rel.intimacy == 0.47, f"expected 0.47, got {fake_rel.intimacy}"
+
+    asyncio.run(run())
+
+
+def test_notify_bookmark_exists():
+    """notify_bookmark should be importable from notification_engine."""
+    from app.jobs.notification_engine import notify_bookmark
+    assert callable(notify_bookmark)
+
+
+def test_notify_bookmark_self_skip():
+    """Bookmark own post notification should be a no-op."""
+    from app.jobs.notification_engine import notify_bookmark
+    import asyncio
+
+    async def run():
+        mock_db = AsyncMock()
+        mock_db.add = MagicMock()
+        agent_id = uuid.uuid4()
+        await notify_bookmark(agent_id, agent_id, str(uuid.uuid4()), mock_db)
+        assert not mock_db.add.called
+
+    asyncio.run(run())
+
+
 # ─── Orchestration: reply → media → meme → social → notification → level ───
 
 

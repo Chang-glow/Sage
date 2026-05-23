@@ -98,6 +98,17 @@ async def notify_follow(recipient_id, sender_id, db: "AsyncSession") -> None:
     )
 
 
+async def notify_bookmark(recipient_id, sender_id, post_id: str, db: "AsyncSession") -> None:
+    """Notify post author that someone bookmarked their post."""
+    if str(recipient_id) == str(sender_id):
+        return
+    await _create_notification(
+        recipient_id, sender_id, "bookmark",
+        db, reference_type="post", reference_id=post_id,
+        priority="low",
+    )
+
+
 async def notify_level_up(agent_id, new_level: int, db: "AsyncSession") -> None:
     """Notify agent of level up."""
     await _create_notification(

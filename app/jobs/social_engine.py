@@ -20,6 +20,9 @@ _INTIMACY_CONFLICT = -0.05
 _INTIMACY_BLOCK = -0.10
 _PROMISE_BROKEN = -0.05
 _PROMISE_FULFILLED = 0.03
+_INTIMACY_BOOKMARK = 0.02
+_INTIMACY_DEEP_FLOW = 0.05
+_INTIMACY_CRITICIZED = -0.03
 
 
 async def _ensure_relationship(agent_id, target_id, db: "AsyncSession") -> Relationship:
@@ -62,7 +65,7 @@ async def adjust_after_reply(
     rel = await _ensure_relationship(agent_id, target_id, db)
 
     # Intimacy
-    rel.intimacy = min(1.0, max(-1.0, rel.intimacy + _INTIMACY_REPLY))
+    rel.intimacy = min(1.0, max(-1.0, (rel.intimacy or 0.0) + _INTIMACY_REPLY))
 
     # Attitude
     delta = _tone_to_attitude_delta(tone)
@@ -100,7 +103,7 @@ async def adjust_after_like(
         return None
 
     rel = await _ensure_relationship(agent_id, target_id, db)
-    rel.intimacy = min(1.0, rel.intimacy + _INTIMACY_LIKE)
+    rel.intimacy = min(1.0, (rel.intimacy or 0.0) + _INTIMACY_LIKE)
     rel.last_interaction = datetime.now(timezone.utc)
     await db.commit()
     return rel
@@ -116,7 +119,7 @@ async def adjust_after_follow(
         return None
 
     rel = await _ensure_relationship(agent_id, target_id, db)
-    rel.intimacy = min(1.0, rel.intimacy + _INTIMACY_FOLLOW)
+    rel.intimacy = min(1.0, (rel.intimacy or 0.0) + _INTIMACY_FOLLOW)
     rel.last_interaction = datetime.now(timezone.utc)
     await db.commit()
     return rel
@@ -132,11 +135,64 @@ async def adjust_after_conflict(
         return None
 
     rel = await _ensure_relationship(agent_id, target_id, db)
-    rel.intimacy = max(-1.0, rel.intimacy + _INTIMACY_CONFLICT)
+    rel.intimacy = max(-1.0, (rel.intimacy or 0.0) + _INTIMACY_CONFLICT)
     if rel.intimacy < -0.2:
         rel.attitude = "negative"
     rel.last_interaction = datetime.now(timezone.utc)
     await db.commit()
+    return rel
+
+
+async def adjust_after_bookmark(
+    agent_id,
+    target_id,
+    db: "AsyncSession",
+) -> Relationship | None:
+    """Adjust relationship after agent bookmarks target's post (+0.02 intimacy)."""
+    if agent_id == target_id:
+        return None
+
+    rel = await _ensure_relationship(agent_id, target_id, db)
+    rel.intimacy = min(1.0, (rel.intimacy or 0.0) + _INTIMACY_BOOKMARK)
+    rel.last_interaction = datetime.now(timezone.utc)
+    await db.commit()
+    logger.info("intimacy_bookmark", agent=str(agent_id), target=str(target_id), delta=_INTIMACY_BOOKMARK)
+    return rel
+
+
+async def adjust_after_deep_flow(
+    agent_id,
+    target_id,
+    db: "AsyncSession",
+) -> Relationship | None:
+    """Adjust relationship after deep flow interaction (+0.05 intimacy)."""
+    if agent_id == target_id:
+        return None
+
+    rel = await _ensure_relationship(agent_id, target_id, db)
+    rel.intimacy = min(1.0, (rel.intimacy or 0.0) + _INTIMACY_DEEP_FLOW)
+    rel.last_interaction = datetime.now(timezone.utc)
+    await db.commit()
+    logger.info("intimacy_deep_flow", agent=str(agent_id), target=str(target_id), delta=_INTIMACY_DEEP_FLOW)
+    return rel
+
+
+async def adjust_after_criticized(
+    agent_id,
+    target_id,
+    db: "AsyncSession",
+) -> Relationship | None:
+    """Adjust relationship after discovering target criticized agent (-0.03 intimacy)."""
+    if agent_id == target_id:
+        return None
+
+    rel = await _ensure_relationship(agent_id, target_id, db)
+    rel.intimacy = max(-1.0, (rel.intimacy or 0.0) + _INTIMACY_CRITICIZED)
+    if rel.intimacy < -0.2:
+        rel.attitude = "negative"
+    rel.last_interaction = datetime.now(timezone.utc)
+    await db.commit()
+    logger.info("intimacy_criticized", agent=str(agent_id), target=str(target_id), delta=_INTIMACY_CRITICIZED)
     return rel
 
 
@@ -154,7 +210,7 @@ async def adjust_after_promise_broken(
     from app.models.agent import Agent
 
     rel = await _ensure_relationship(requester_id, promiser_id, db)
-    rel.intimacy = max(-1.0, min(1.0, rel.intimacy + _PROMISE_BROKEN))
+    rel.intimacy = max(-1.0, min(1.0, (rel.intimacy or 0.0) + _PROMISE_BROKEN))
     rel.last_interaction = datetime.now(timezone.utc)
     if rel.intimacy < -0.2:
         rel.attitude = "negative"
@@ -202,7 +258,7 @@ async def adjust_after_promise_fulfilled(
     boost = base_boost * importance
 
     rel = await _ensure_relationship(requester_id, promiser_id, db)
-    rel.intimacy = min(1.0, max(-1.0, rel.intimacy + boost))
+    rel.intimacy = min(1.0, max(-1.0, (rel.intimacy or 0.0) + boost))
     rel.last_interaction = datetime.now(timezone.utc)
 
     # Fetch promiser for tag/reputation updates

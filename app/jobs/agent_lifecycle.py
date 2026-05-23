@@ -909,6 +909,15 @@ async def _bookmark_hook(agent, post, decision, reply_result, db, llm_caller) ->
     bookmark = BookmarkModel(agent_id=agent.id, post_id=post.id)
     db.add(bookmark)
     await db.commit()
+
+    # Social: adjust intimacy for being bookmarked
+    post_author_id = getattr(post, "author_id", None)
+    if post_author_id and str(post_author_id) != str(agent.id):
+        from app.jobs.social_engine import adjust_after_bookmark
+        from app.jobs.notification_engine import notify_bookmark
+        await adjust_after_bookmark(agent.id, post_author_id, db)
+        await notify_bookmark(post_author_id, agent.id, str(post.id), db)
+
     logger.info("bookmark_created", agent_id=agent_id, post_id=str(post.id))
 
 
@@ -1406,6 +1415,11 @@ async def _conflict_detect_hook(
 
     logger.info("conflict_detected", agent_id=agent_id, opponent_id=opponent_id,
                 action=action, guilt_delta=result.get("guilt_delta", 0))
+
+    # Mutually apply criticized intimacy penalty (v0.12.9)
+    from app.jobs.social_engine import adjust_after_criticized
+    await adjust_after_criticized(agent.id, opponent.id, db)
+    await adjust_after_criticized(opponent.id, agent.id, db)
 
     # Execute action
     try:

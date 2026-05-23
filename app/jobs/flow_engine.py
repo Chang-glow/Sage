@@ -287,6 +287,17 @@ async def run_interactive_flow_round(
             except Exception:
                 pass
 
+            # Deep flow intimacy boost: natural end (max rounds reached) means deep engagement
+            if session.round >= session.max_rounds:
+                try:
+                    from app.jobs.social_engine import adjust_after_deep_flow
+                    post_author_id = getattr(post, "author_id", None)
+                    if post_author_id and str(post_author_id) != str(agent.id):
+                        await adjust_after_deep_flow(agent.id, post_author_id, db)
+                        await adjust_after_deep_flow(post_author_id, agent.id, db)
+                except Exception:
+                    pass
+
         return {"reply_id": str(reply.id), "content": reply_content, "tone": tone}
 
     return None
