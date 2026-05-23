@@ -82,7 +82,7 @@ async def execute(
     caller = llm_caller or call_llm
 
     try:
-        raw_response = await caller(prompt, model, skill_id=skill_id)
+        raw_response = await caller(prompt, model, skill_id=skill_id, agent_id=agent_id, db=db)
     except Exception as e:
         logger.warning("llm_call_failed", skill_id=skill_id, model=model, error=str(e))
         # 主力模型失败 → 用便宜模型重试一次
@@ -90,7 +90,7 @@ async def execute(
             cheap_model = _resolve_model("便宜")
             if cheap_model != model:
                 try:
-                    raw_response = await caller(prompt, cheap_model, skill_id=skill_id)
+                    raw_response = await caller(prompt, cheap_model, skill_id=skill_id, agent_id=agent_id, db=db)
                     model = cheap_model
                 except Exception as e2:
                     logger.error("llm_fallback_failed", skill_id=skill_id, model=cheap_model, error=str(e2))

@@ -150,6 +150,7 @@ async def call_llm(
     *,
     agent_id: str | None = None,
     skill_id: str | None = None,
+    db=None,
 ) -> str:
     sem = _get_semaphore()
     async with sem:
@@ -176,6 +177,15 @@ async def call_llm(
             )
 
         _track_tokens(agent_id, pt, ct)
+        if db is not None and agent_id:
+            source = "deepseek_chat" if is_deepseek else "siliconflow"
+            try:
+                from app.engine.usage_tracker import record_token_usage
+                await record_token_usage(db, agent_id, source, pt + ct,
+                    metadata={"model": model, "prompt_tokens": pt, "completion_tokens": ct,
+                              "skill_id": skill_id})
+            except Exception:
+                logger.warning("record_token_usage_failed", agent_id=agent_id)
         return content
 
 
@@ -183,7 +193,7 @@ class MockLLM:
     def __init__(self, responses: dict[str, str] | None = None):
         self.responses = responses or _default_mock_responses()
 
-    async def call(self, prompt: str, model: str = "", *, skill_id: str | None = None) -> str:
+    async def call(self, prompt: str, model: str = "", *, skill_id: str | None = None, agent_id: str | None = None, db=None) -> str:
         if skill_id and skill_id in self.responses:
             return self.responses[skill_id]
         return '{"status": "ok", "result": "mock_response"}'

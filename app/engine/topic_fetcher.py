@@ -260,9 +260,14 @@ async def refresh_topic_pool(
         if results:
             added = await _upsert_topics(db, results)
             total += added
+        try:
+            from app.engine.usage_tracker import record_api_call
+            await record_api_call(db, source="bing_search", count=1,
+                metadata={"query": query_text[:100], "category": category, "results": len(results)})
+        except Exception:
+            pass
 
-    if total > 0:
-        await db.commit()
-        logger.info("bing_topic_pool_refreshed", added=total, queries=len(queries))
+    await db.commit()
+    logger.info("bing_topic_pool_refreshed", added=total, queries=len(queries))
 
     return total

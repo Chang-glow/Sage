@@ -136,8 +136,8 @@ def test_refresh_topic_pool_stores_topics():
             ])
 
             assert count == 2, f"Expected 2 topics, got {count}"
-            # db.add called twice (once per topic)
-            assert mock_db.add.call_count == 2
+            # db.add called 3 times: 2 topics + 1 api_call record
+            assert mock_db.add.call_count == 3
             assert mock_db.commit.called
             mock_search.assert_called_once()
 
@@ -159,7 +159,9 @@ def test_refresh_topic_pool_empty_result():
             ])
 
             assert count == 0
-            mock_db.add.assert_not_called()
+            # db.add still called once for the api_call record
+            assert mock_db.add.call_count == 1
+            assert mock_db.commit.called
 
     asyncio.run(_run())
 
@@ -198,9 +200,11 @@ def test_refresh_topic_pool_deduplicate():
                 {"query": "科技", "category": "科技"},
             ])
 
-            # Duplicate should be skipped
+            # Duplicate should be skipped (topic not added, but api_call record is)
             assert count == 0
-            mock_db.add.assert_not_called()
+            # db.add still called once for the api_call record
+            assert mock_db.add.call_count == 1
+            assert mock_db.commit.called
 
     asyncio.run(_run())
 
