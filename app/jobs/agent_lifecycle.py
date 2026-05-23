@@ -1137,8 +1137,24 @@ async def _search_hook(agent, post, decision, reply_result, db, llm_caller) -> N
         _search_counts[agent_id] = count + 1
         if last_search is None:
             _search_cooldowns[agent_id] = now
-        logger.info("search_intent_recorded", agent_id=agent_id,
-                    search_query=result.parsed.get("search_query", ""))
+
+        search_query = result.parsed.get("query", "")
+        if not search_query:
+            return
+
+        logger.info("search_executing", agent_id=agent_id, query=search_query)
+
+        # Execute internal search
+        from app.engine.search_engine import execute_internal_search, format_search_results
+        try:
+            internal_results = await execute_internal_search(search_query, db)
+            if internal_results:
+                formatted = format_search_results(internal_results)
+                logger.info("search_results_found", agent_id=agent_id,
+                           query=search_query, count=len(internal_results))
+        except Exception:
+            logger.exception("search_execution_failed", agent_id=agent_id,
+                           query=search_query)
 
 
 async def _count_active_promises(agent, db: AsyncSession) -> int:
