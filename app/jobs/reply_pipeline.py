@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import random
 import uuid
 from dataclasses import dataclass, field
@@ -19,6 +20,20 @@ from app.skills.skill_utils import build_agent_context, build_post_context, buil
 logger = structlog.get_logger()
 
 _WEIGHTS = yaml_config.reply_weights
+
+
+def reply_willingness(reply_count_in_post: int) -> float:
+    """Reply willingness multiplier based on round number within a post.
+
+    Models natural conversation curve: moderate start → peak at round 2
+    (they replied back!) → gradual decay.
+
+    Formula: w(n) = n * exp(-0.6*n) * 1.6  where n = reply_count + 1
+    """
+    n = reply_count_in_post + 1
+    raw = n * math.exp(-0.6 * n) * 1.6
+    return min(1.0, max(0.0, raw))
+
 
 # ─── Data types ───
 
@@ -230,6 +245,8 @@ async def decide_reply(
     balance_tracker: SelfBalanceTracker,
     daily_reply_count: int = 0,
     max_daily_replies: int = 15,
+    reply_count_in_post: int = 0,
+    in_flow: bool = False,
 ) -> ReplyDecisionResult:
     """Full reply decision pipeline: activation → self-balance → persona → LLM decision."""
     agent_id = str(agent.id)
@@ -274,6 +291,12 @@ async def decide_reply(
     # Fix: post_author should be the author's name, not relationship_attitude
     if hasattr(post, 'author') and post.author:
         ctx["post_author"] = post.author.nickname
+
+    # Compute reply willingness (skip in flow — flow is deep engagement)
+    if not in_flow:
+        willingness = reply_willingness(reply_count_in_post)
+        ctx["reply_willingness"] = round(willingness, 3)
+        ctx["reply_round_in_post"] = reply_count_in_post + 1
 
     # 5. Call reply_decision skill
     result = await execute("reply_decision", ctx, llm_caller=llm_caller, agent_id=agent_id, db=db)
@@ -375,6 +398,13 @@ async def generate_reply(
         content=content,
     )
     db.add(reply)
+    await db.flush()
+    reply_id = reply.id
+    post_id = str(post.id)
+    post_id_uuid = post.id
+    agent_id_uuid = agent.id
+    bar_id = getattr(post, "bar_id", None)
+    post_author_id_val = getattr(post, "author_id", None)
 
     # 6. Update post.reply_count
     await db.execute(
@@ -383,33 +413,35 @@ async def generate_reply(
 
     await db.commit()
 
-    logger.info("reply_generated", agent_id=agent_id, post_id=str(post.id),
-                reply_id=str(reply.id), tone=decision.suggested_tone)
+    from app.engine.data_integrity import verify_insert
+    from app.models.post import Reply as ReplyModel
+    await verify_insert(db, ReplyModel, reply_id)
+
+    logger.info("reply_generated", agent_id=agent_id, post_id=post_id,
+                reply_id=str(reply_id), tone=decision.suggested_tone)
 
     # Track slang usage (via plugin manager)
     from app.plugins import plugin_manager
-    await plugin_manager.post_content(str(agent.id), content, db)
+    await plugin_manager.post_content(agent_id, content, db)
 
     # Adjust social relationship
     from app.jobs.social_engine import adjust_after_reply
-    post_author_id = getattr(post, "author_id", None)
-    if post_author_id and str(post_author_id) != agent_id:
-        await adjust_after_reply(agent.id, post_author_id, decision.suggested_tone, db)
+    if post_author_id_val and str(post_author_id_val) != agent_id:
+        await adjust_after_reply(agent_id_uuid, post_author_id_val, decision.suggested_tone, db)
 
     # Notifications
     from app.jobs.notification_engine import notify_reply, notify_mentions
-    if post_author_id and str(post_author_id) != agent_id:
-        await notify_reply(post_author_id, agent.id, str(post.id), db)
-    await notify_mentions(content, agent.id, str(post.id), db)
+    if post_author_id_val and str(post_author_id_val) != agent_id:
+        await notify_reply(post_author_id_val, agent_id_uuid, post_id, db)
+    await notify_mentions(content, agent_id_uuid, post_id, db)
 
     # Level: add reply XP
     from app.jobs.level_engine import add_xp
-    bar_id = getattr(post, "bar_id", None)
     if bar_id:
-        await add_xp(agent.id, bar_id, "reply", db)
+        await add_xp(agent_id_uuid, bar_id, "reply", db)
 
     return {
-        "reply_id": str(reply.id),
+        "reply_id": str(reply_id),
         "content": content,
         "tone": decision.suggested_tone,
     }

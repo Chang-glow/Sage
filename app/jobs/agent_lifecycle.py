@@ -424,6 +424,25 @@ async def _step3_bar_selection(
     return {"active_bars": [], "casual_bars": [], "skipped_bars": []}
 
 
+# ─── Notification awakening helpers ───
+
+
+def _collect_reply_notified_posts(notifications: list) -> set[str]:
+    """Extract post_ids from reply-type notifications for browse prioritization."""
+    post_ids = set()
+    for n in notifications:
+        if n.type == "reply" and n.reference_id is not None:
+            post_ids.add(str(n.reference_id))
+    return post_ids
+
+
+def _prioritize_notified_posts(posts: list, notified_ids: set[str]) -> list:
+    """Sort posts so that reply-notified ones come first."""
+    notified = [p for p in posts if str(p.id) in notified_ids]
+    other = [p for p in posts if str(p.id) not in notified_ids]
+    return notified + other
+
+
 # ─── Step 4: Notification processing ───
 
 
@@ -450,6 +469,12 @@ async def _step4_notifications(agent: Agent, db: AsyncSession, llm_caller: Calla
     await db.commit()
 
     logger.info("notifications_processed", agent_id=agent_id, total=len(notifications), high_priority=high)
+
+    # Collect reply notifications for browse prioritization
+    reply_post_ids = _collect_reply_notified_posts(notifications)
+    if reply_post_ids:
+        agent._reply_notified_posts = reply_post_ids
+        logger.info("reply_notifications_collected", agent_id=agent_id, count=len(reply_post_ids))
 
     # Sage agent: handle @mention notifications
     if agent.nickname == "Sage":
@@ -566,6 +591,11 @@ async def _step5_browse_and_interact(
         if not posts:
             continue
 
+        # Prioritize posts with reply notifications (notification awakening)
+        notified_ids = getattr(agent, '_reply_notified_posts', set())
+        if notified_ids:
+            posts = _prioritize_notified_posts(posts, notified_ids)
+
         # Run browse filter
         filter_results = await run_browse_filter(agent, posts, db, llm_caller)
         passed_ids = {fr.post_id for fr in filter_results if fr.passed}
@@ -603,9 +633,19 @@ async def _step5_browse_and_interact(
                 continue
 
             # Normal reply pipeline
+            # Count existing replies by this agent in this post (for willingness curve)
+            from app.models.post import Reply
+            cnt_result = await db.execute(
+                select(func.count()).select_from(Reply).where(
+                    Reply.post_id == post.id, Reply.author_id == agent.id
+                )
+            )
+            reply_count_in_post = cnt_result.scalar_one()
+
             decision = await decide_reply(
                 agent, post, summary, db, llm_caller, balance_tracker,
                 daily_reply_count=daily_reply_count, max_daily_replies=max_daily_replies,
+                reply_count_in_post=reply_count_in_post, in_flow=False,
             )
 
             if decision.will_reply:

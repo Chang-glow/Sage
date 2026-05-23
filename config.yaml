@@ -66,6 +66,10 @@ reply_weights:
   observed_info: 0.1
   post_content: 0.25
 
+# ── 回复意愿曲线（v0.12.6）──
+reply:
+  willingness_curve_enabled: true  # 轮次感知的回复意愿衰减曲线
+
 # ── 安全 ──
 security:
   invite_code_required: true
