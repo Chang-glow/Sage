@@ -72,6 +72,42 @@ async def consolidate_memories_task(db, llm_caller: Callable) -> None:
         logger.info("consolidate_memories_done", agents=consolidated)
 
 
+async def memory_cleanup_task(db, llm_caller: Callable) -> None:
+    """Daily task (midnight): clean expired fragments + evict over-capacity for all active agents."""
+    from app.engine.memory_engine import cleanup_agent_memories, evict_over_capacity
+    from app.models.agent import Agent
+
+    result = await db.execute(select(Agent).where(Agent.status == "active"))
+    agents = list(result.scalars().all())
+
+    total_expired = 0
+    total_evicted = 0
+    for agent in agents:
+        if not agent.solidified_memories:
+            continue
+        try:
+            expired = cleanup_agent_memories(agent)
+            total_expired += len(expired)
+            evicted = evict_over_capacity(agent)
+            total_evicted += len(evicted)
+        except Exception:
+            logger.warning("memory_cleanup_agent_failed", agent_id=str(agent.id))
+
+    if total_expired or total_evicted:
+        logger.info("memory_cleanup_done", expired=total_expired, evicted=total_evicted, agents=len(agents))
+
+
+async def intimacy_maintenance_task(db, llm_caller: Callable) -> None:
+    """Daily task (midnight): decay stale intimacy + archive cold relationships."""
+    from app.engine.memory_engine import decay_all_intimacy, archive_cold_relationships
+
+    decayed = await decay_all_intimacy(db)
+    archived = await archive_cold_relationships(db)
+
+    if decayed or archived:
+        logger.info("intimacy_maintenance_done", decayed=decayed, archived=archived)
+
+
 async def sage_news_task(db, llm_caller: Callable) -> None:
     """Daily task (10:00): generate Sage daily news post."""
     from app.models.agent import Agent
@@ -253,6 +289,8 @@ daily_task_registry.register(
 )
 daily_task_registry.register("slang_decay", decay_slangs, hour=0, minute=7)
 daily_task_registry.register("memory_consolidate", consolidate_memories_task, hour=0, minute=13)
+daily_task_registry.register("memory_cleanup", memory_cleanup_task, hour=0, minute=15)
+daily_task_registry.register("intimacy_maintenance", intimacy_maintenance_task, hour=0, minute=17)
 daily_task_registry.register("sage_news", sage_news_task, hour=10, minute=0)
 daily_task_registry.register("sage_summary", sage_summary_task, hour=23, minute=30)
 daily_task_registry.register(

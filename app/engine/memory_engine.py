@@ -121,3 +121,203 @@ async def consolidate_agent_memories(
         consolidated=len(to_consolidate),
         discarded=len(to_discard),
     )
+
+
+def cleanup_agent_memories(agent: Any) -> list[str]:
+    """Remove expired fragments from agent.solidified_memories.
+
+    Retention rules:
+    - short (importance < 0.3): short_retention_days_low (3d)
+    - short (0.3 <= importance < 0.7): short_retention_days_mid (14d)
+    - short (importance >= 0.7): never expire by time
+    - long: long_retention_days (90d)
+    - core: never expire
+
+    Mutates agent.solidified_memories in place. Returns list of removed fragment ids.
+    """
+    fragments: list[dict[str, Any]] = agent.solidified_memories or []
+    if not fragments:
+        return []
+
+    mem_cfg = yaml_config.memory
+    low_days = int(getattr(mem_cfg, "short_retention_days_low", 3))
+    mid_days = int(getattr(mem_cfg, "short_retention_days_mid", 14))
+    long_days = int(getattr(mem_cfg, "long_retention_days", 90))
+    now = datetime.now(timezone.utc)
+
+    removed: list[str] = []
+    kept: list[dict[str, Any]] = []
+
+    for frag in fragments:
+        fid = frag.get("id", "")
+        ftype = frag.get("type", "short")
+        importance = frag.get("importance", 0)
+
+        if ftype == "core":
+            kept.append(frag)
+            continue
+
+        created_str = frag.get("created_at", "")
+        age_days = 0
+        try:
+            created = datetime.fromisoformat(created_str)
+            age_days = (now - created).days
+        except (ValueError, TypeError):
+            kept.append(frag)
+            continue
+
+        expired = False
+
+        if ftype == "short":
+            if importance >= 0.7:
+                expired = False
+            elif importance >= 0.3:
+                expired = age_days > mid_days
+            else:
+                expired = age_days > low_days
+        elif ftype == "long":
+            expired = age_days > long_days
+
+        if expired:
+            removed.append(fid)
+        else:
+            kept.append(frag)
+
+    agent.solidified_memories = kept
+    return removed
+
+
+def evict_over_capacity(agent: Any) -> list[str]:
+    """Evict lowest-score fragments when short or long pools exceed capacity.
+
+    Score = importance * time_decay, where time_decay = 1 / (1 + age_days / retention_days).
+    Lower score = evicted first.
+
+    Mutates agent.solidified_memories in place. Returns list of evicted fragment ids.
+    """
+    fragments: list[dict[str, Any]] = agent.solidified_memories or []
+    if not fragments:
+        return []
+
+    mem_cfg = yaml_config.memory
+    max_short = int(getattr(mem_cfg, "max_short_fragments", 150))
+    max_long = int(getattr(mem_cfg, "max_long_fragments", 50))
+    low_days = int(getattr(mem_cfg, "short_retention_days_low", 3))
+    mid_days = int(getattr(mem_cfg, "short_retention_days_mid", 14))
+    long_ret = int(getattr(mem_cfg, "long_retention_days", 90))
+    now = datetime.now(timezone.utc)
+
+    def _score(frag: dict[str, Any]) -> float:
+        importance = frag.get("importance", 0)
+        created_str = frag.get("created_at", "")
+        ftype = frag.get("type", "short")
+        try:
+            age_days = (now - datetime.fromisoformat(created_str)).days
+        except (ValueError, TypeError):
+            age_days = 0
+        if ftype == "long":
+            ref_days = long_ret
+        elif importance >= 0.3:
+            ref_days = mid_days
+        else:
+            ref_days = low_days
+        time_decay = 1.0 / (1.0 + max(0, age_days) / max(1, ref_days))
+        return importance * time_decay
+
+    short_frags = [(f, _score(f)) for f in fragments if f.get("type") == "short"]
+    long_frags = [(f, _score(f)) for f in fragments if f.get("type") == "long"]
+    other = [f for f in fragments if f.get("type") not in ("short", "long")]
+
+    removed: list[str] = []
+
+    if len(short_frags) > max_short:
+        short_frags.sort(key=lambda x: x[1])
+        excess = len(short_frags) - max_short
+        for f, _ in short_frags[:excess]:
+            removed.append(f.get("id", ""))
+        short_frags = short_frags[excess:]
+
+    if len(long_frags) > max_long:
+        long_frags.sort(key=lambda x: x[1])
+        excess = len(long_frags) - max_long
+        for f, _ in long_frags[:excess]:
+            removed.append(f.get("id", ""))
+        long_frags = long_frags[excess:]
+
+    agent.solidified_memories = [f for f, _ in short_frags] + [f for f, _ in long_frags] + other
+    return removed
+
+
+async def decay_all_intimacy(db: AsyncSession) -> int:
+    """Reduce intimacy for relationships with last_interaction > 7 days.
+
+    Decay rate: config.memory.decay_rate per day beyond 7.
+    Does NOT drop intimacy below -1.0.
+    Returns count of decayed relationships.
+    """
+    from sqlalchemy import select, update
+
+    now = datetime.now(timezone.utc)
+    decay_rate = float(yaml_config.memory.decay_rate)
+    stale_days = 7
+
+    from app.models.relationship import Relationship
+
+    result = await db.execute(
+        select(Relationship).where(
+            Relationship.is_archived == False,
+            Relationship.last_interaction.isnot(None),
+        )
+    )
+    relationships = result.scalars().all()
+
+    decayed = 0
+    for rel in relationships:
+        if rel.last_interaction is None:
+            continue
+        days_since = (now - rel.last_interaction).days
+        if days_since > stale_days:
+            decay_amount = (days_since - stale_days) * decay_rate
+            rel.intimacy = max(-1.0, rel.intimacy - decay_amount)
+            decayed += 1
+
+    if decayed > 0:
+        await db.commit()
+
+    return decayed
+
+
+async def archive_cold_relationships(db: AsyncSession) -> int:
+    """Archive relationships: intimacy < archive_threshold AND last_interaction > archive_days ago.
+
+    Returns count of archived relationships.
+    """
+    from sqlalchemy import select
+
+    now = datetime.now(timezone.utc)
+    threshold = float(yaml_config.memory.archive_threshold)
+    archive_days = int(yaml_config.memory.archive_days)
+
+    from app.models.relationship import Relationship
+
+    result = await db.execute(
+        select(Relationship).where(
+            Relationship.is_archived == False,
+            Relationship.last_interaction.isnot(None),
+        )
+    )
+    relationships = result.scalars().all()
+
+    archived = 0
+    for rel in relationships:
+        if rel.last_interaction is None:
+            continue
+        days_since = (now - rel.last_interaction).days
+        if rel.intimacy < threshold and days_since > archive_days:
+            rel.is_archived = True
+            archived += 1
+
+    if archived > 0:
+        await db.commit()
+
+    return archived
