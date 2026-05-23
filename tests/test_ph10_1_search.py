@@ -223,9 +223,9 @@ def test_search_hook_calls_engine():
             from app.jobs.agent_lifecycle import _search_hook
             await _search_hook(agent, post, None, None, mock_db, mock_llm)
 
-            # db.execute called 4 times (posts, replies, bars, agents)
-            assert mock_db.execute.call_count == 4, (
-                f"Expected 4 db.execute calls, got {mock_db.execute.call_count}"
+            # db.execute called 5 times (4 internal + 1 external)
+            assert mock_db.execute.call_count == 5, (
+                f"Expected 5 db.execute calls (4 internal + 1 external), got {mock_db.execute.call_count}"
             )
             mock_exec.assert_called_once()
             assert mock_exec.call_args[0][0] == "search_decision"

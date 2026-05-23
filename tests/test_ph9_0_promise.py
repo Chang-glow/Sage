@@ -65,7 +65,7 @@ def test_promise_model_creation():
     col_names = {c.name for c in cols}
     expected = {"id", "requester_id", "promiser_id", "content", "due_time",
                 "float_value", "importance", "status", "created_at",
-                "fulfilled_at", "source_reply_id"}
+                "fulfilled_at", "source_reply_id", "expectation"}
     for name in expected:
         assert name in col_names, f"Missing column: {name}"
 

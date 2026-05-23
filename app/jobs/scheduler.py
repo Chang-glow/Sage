@@ -222,26 +222,42 @@ async def sage_summary_task(db, llm_caller: Callable) -> None:
 
 
 async def check_promise_deadlines_task(db, llm_caller: Callable) -> None:
-    """Daily task: check pending promises, mark broken those past deadline + grace period."""
+    """Daily task: update expectation values + mark broken promises past deadline."""
     from app.engine.feature_flags import plugin_registry
     if not plugin_registry.is_enabled("promises"):
         return
 
     from app.models.promise import Promise
-    from app.engine.promise_engine import check_promise_status
+    from app.models.agent import Agent
+    from app.engine.promise_engine import check_promise_status, calculate_expectation
     from app.jobs.social_engine import adjust_after_promise_broken
     from app.jobs.notification_engine import _create_notification
 
     result = await db.execute(
-        select(Promise).where(
-            Promise.status == "pending",
-            Promise.due_time.isnot(None),
-        )
+        select(Promise).where(Promise.status == "pending")
     )
     pending_promises = result.scalars().all()
 
     broken_count = 0
+    expectation_updated = 0
     for promise in pending_promises:
+        # Update expectation for every pending promise
+        try:
+            requester_result = await db.execute(select(Agent).where(Agent.id == promise.requester_id))
+            requester = requester_result.scalar_one_or_none()
+            promiser_result = await db.execute(select(Agent).where(Agent.id == promise.promiser_id))
+            promiser = promiser_result.scalar_one_or_none()
+            if requester is not None and promiser is not None:
+                promise.expectation = await calculate_expectation(
+                    promise, requester, promiser, llm_caller,
+                )
+                expectation_updated += 1
+        except Exception:
+            logger.warning("expectation_calc_failed", promise_id=str(promise.id))
+
+        # Check broken status (only for promises with deadline)
+        if promise.due_time is None:
+            continue
         status = check_promise_status(promise)
         if status == "broken":
             promise.status = "broken"
@@ -275,9 +291,10 @@ async def check_promise_deadlines_task(db, llm_caller: Callable) -> None:
 
             broken_count += 1
 
-    if broken_count > 0:
+    if broken_count > 0 or expectation_updated > 0:
         await db.commit()
-        logger.info("promise_deadline_check_done", broken=broken_count, total=len(pending_promises))
+        logger.info("promise_deadline_check_done", broken=broken_count,
+                    expectation_updated=expectation_updated, total=len(pending_promises))
 
 
 # Register daily tasks

@@ -35,6 +35,7 @@ class Promise(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    expectation: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     fulfilled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     source_reply_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("replies.id")

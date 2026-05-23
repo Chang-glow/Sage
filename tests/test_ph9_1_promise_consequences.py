@@ -207,6 +207,65 @@ def test_deadline_check_exact_no_grace():
     asyncio.run(_run())
 
 
+def test_deadline_check_updates_expectation():
+    """Deadline check calls calculate_expectation and stores value on promise."""
+    from unittest.mock import AsyncMock, patch
+
+    async def _run():
+        mock_db = AsyncMock()
+        mock_llm = MagicMock()
+
+        from app.engine.feature_flags import plugin_registry
+        plugin_registry.toggle("promises", True)
+
+        from app.models.promise import Promise
+        promise = Promise(
+            requester_id=uuid.uuid4(),
+            promiser_id=uuid.uuid4(),
+            content="测试期待值",
+            due_time=datetime(2026, 6, 1, 10, 0, 0, tzinfo=timezone.utc),
+            importance=0.8,
+            status="pending",
+        )
+        requester = _make_mock_agent("需求方")
+        promiser = _make_mock_agent("承诺方")
+
+        # side_effect: 1st call → [promise], 2nd → requester, 3rd → promiser
+        call_count = 0
+
+        async def _mock_execute(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalars.return_value.all.return_value = [promise]
+            elif call_count == 2:
+                result.scalar_one_or_none.return_value = requester
+            elif call_count == 3:
+                result.scalar_one_or_none.return_value = promiser
+            return result
+
+        mock_db.execute = _mock_execute
+
+        with patch("app.engine.promise_engine.calculate_expectation", new_callable=AsyncMock) as mock_calc:
+            mock_calc.return_value = 75.5
+
+            from app.jobs.scheduler import check_promise_deadlines_task
+            await check_promise_deadlines_task(mock_db, mock_llm)
+
+            # Expectation should be set
+            assert promise.expectation == 75.5, (
+                f"Expected expectation=75.5, got {promise.expectation}"
+            )
+            # Still pending (not broken — due_time is in the future)
+            assert promise.status == "pending"
+            mock_calc.assert_called_once()
+
+        plugin_registry.toggle("promises", False)
+
+    asyncio.run(_run())
+
+
 # ── 0.9.1b: Broken Promise Penalty ──
 
 def test_adjust_after_promise_broken_exists():

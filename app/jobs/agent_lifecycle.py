@@ -1144,14 +1144,18 @@ async def _search_hook(agent, post, decision, reply_result, db, llm_caller) -> N
 
         logger.info("search_executing", agent_id=agent_id, query=search_query)
 
-        # Execute internal search
-        from app.engine.search_engine import execute_internal_search, format_search_results
+        # Execute internal + external search
+        from app.engine.search_engine import (
+            execute_internal_search, execute_external_search, format_search_results,
+        )
         try:
             internal_results = await execute_internal_search(search_query, db)
-            if internal_results:
-                formatted = format_search_results(internal_results)
+            external_results = await execute_external_search(search_query, db)
+            all_results = (internal_results or []) + (external_results or [])
+            if all_results:
+                formatted = format_search_results(all_results)
                 logger.info("search_results_found", agent_id=agent_id,
-                           query=search_query, count=len(internal_results))
+                           query=search_query, count=len(all_results))
         except Exception:
             logger.exception("search_execution_failed", agent_id=agent_id,
                            query=search_query)
