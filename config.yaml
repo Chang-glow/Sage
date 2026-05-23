@@ -129,6 +129,10 @@ promises:
   reputation_boost_per_fulfillment: 0.01     # 每次高重要性履行声望增量
   reputation_consecutive_threshold: 3        # 连续履行次数阈值
 
+# ── 话题池 ──
+topics:
+  queries: []  # {query, category} 列表，具体搜索方案待文档补充
+
 # ── 冲突与反思 ──
 conflict:
   reflection_cooldown_minutes: 10        # 冲突后反射冷却时间

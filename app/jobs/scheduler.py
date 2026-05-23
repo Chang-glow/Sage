@@ -297,6 +297,29 @@ async def check_promise_deadlines_task(db, llm_caller: Callable) -> None:
                     expectation_updated=expectation_updated, total=len(pending_promises))
 
 
+async def refresh_topics_task(db, llm_caller: Callable) -> None:
+    """Daily task: refresh external topic pool from web search.
+
+    Query list is configured in config.yaml → topics.queries.
+    Falls back to empty list if not configured.
+    """
+    from app.engine.topic_fetcher import refresh_topic_pool
+
+    queries = getattr(yaml_config, "topics", None)
+    query_list: list[dict[str, str]] = []
+    if queries is not None:
+        try:
+            query_list = getattr(queries, "queries", [])
+        except AttributeError:
+            pass
+
+    if not query_list:
+        logger.info("refresh_topics_skipped", reason="no queries configured")
+        return
+
+    await refresh_topic_pool(db, query_list)
+
+
 # Register daily tasks
 daily_task_registry.register(
     "generate_daily_schedules",
@@ -308,6 +331,7 @@ daily_task_registry.register("slang_decay", decay_slangs, hour=0, minute=7)
 daily_task_registry.register("memory_consolidate", consolidate_memories_task, hour=0, minute=13)
 daily_task_registry.register("memory_cleanup", memory_cleanup_task, hour=0, minute=15)
 daily_task_registry.register("intimacy_maintenance", intimacy_maintenance_task, hour=0, minute=17)
+daily_task_registry.register("refresh_topics", refresh_topics_task, hour=6, minute=0)
 daily_task_registry.register("sage_news", sage_news_task, hour=10, minute=0)
 daily_task_registry.register("sage_summary", sage_summary_task, hour=23, minute=30)
 daily_task_registry.register(
