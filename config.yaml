@@ -130,20 +130,24 @@ promises:
   reputation_consecutive_threshold: 3        # 连续履行次数阈值
 
 # ── 话题池 ──
-# 搜索方案详见 docs/04_论坛管理与细节实现/extend/04-4-ex_新闻池配置规范.md
-# 每日 10 次 API 调用，每次返回 ≤5 条，去重后约 28-30 条
+# 三级采集策略详见 docs/04_论坛管理与细节实现/extend/04-4-ex_新闻池配置规范.md
+#   - bing_queries: 搜索引擎 API → 仅时政类 (2 次/天, ~60 次/月, 免费额度内)
+#   - rss_feeds: RSS/Atom 订阅 → 其余 8 类 (零成本, RSSHub + 官方 RSS)
+#   - 官方社媒扫描 (B站/微博) → 游戏/娱乐, 待后续实现
 topics:
-  queries:
+  bing_queries:
     - {query: "国际新闻 今日要闻", category: "国际局势"}
     - {query: "国内热点新闻 社会民生", category: "国内热点"}
-    - {query: "娱乐新闻 影视综艺 艺人", category: "娱乐新闻"}
-    - {query: "商业新闻 企业动态 市场", category: "商业版"}
-    - {query: "动漫 ACG 新番 漫展", category: "二次元版"}
-    - {query: "游戏新闻 手游更新 电竞", category: "游戏版"}
-    - {query: "地方新闻 民生 城市生活", category: "当地新闻"}
-    - {query: "文学出版 作家动态 阅读", category: "文学版"}
-    - {query: "科技前沿 科普 学术趣闻", category: "科创科普版"}
-    - {query: "教育政策 考试动态 校园", category: "教育版"}
+  rss_feeds:
+    # 注: RSS URL 基于 RSSHub (https://rsshub.app) + 官方 RSS, 可按需调整
+    - {url: "https://rsshub.app/weibo/search/hot", category: "娱乐新闻"}
+    - {url: "https://rsshub.app/acg/news", category: "二次元版"}
+    - {url: "https://rsshub.app/gamersky/news", category: "游戏版"}
+    - {url: "https://rsshub.app/jjrb/news", category: "商业版"}
+    - {url: "https://rsshub.app/local/news", category: "当地新闻"}
+    - {url: "https://rsshub.app/chinawriter/news", category: "文学版"}
+    - {url: "https://rsshub.app/kepu/latest", category: "科创科普版"}
+    - {url: "https://rsshub.app/moe/latest", category: "教育版"}
 
 # ── 冲突与反思 ──
 conflict:

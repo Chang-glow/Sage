@@ -298,26 +298,42 @@ async def check_promise_deadlines_task(db, llm_caller: Callable) -> None:
 
 
 async def refresh_topics_task(db, llm_caller: Callable) -> None:
-    """Daily task: refresh external topic pool from web search.
+    """Daily task: refresh external topic pool via Bing API (时政) + RSS feeds (其他).
 
-    Query list is configured in config.yaml → topics.queries.
-    Falls back to empty list if not configured.
+    Config structure in config.yaml → topics:
+      - bing_queries: [{query, category}]  — 国际局势, 国内热点
+      - rss_feeds:    [{url, category}]    — 娱乐, 二次元, 游戏, 商业, 当地, 文学, 科创, 教育
     """
-    from app.engine.topic_fetcher import refresh_topic_pool
+    from app.engine.topic_fetcher import refresh_topic_pool, refresh_topic_pool_from_rss
 
-    queries = getattr(yaml_config, "topics", None)
-    query_list: list[dict[str, str]] = []
-    if queries is not None:
+    topics_cfg = getattr(yaml_config, "topics", None)
+    bing_list: list[dict[str, str]] = []
+    rss_list: list[dict[str, str]] = []
+    if topics_cfg is not None:
         try:
-            query_list = getattr(queries, "queries", [])
+            bing_list = getattr(topics_cfg, "bing_queries", [])
+        except AttributeError:
+            pass
+        try:
+            rss_list = getattr(topics_cfg, "rss_feeds", [])
         except AttributeError:
             pass
 
-    if not query_list:
-        logger.info("refresh_topics_skipped", reason="no queries configured")
+    if not bing_list and not rss_list:
+        logger.info("refresh_topics_skipped", reason="no bing_queries or rss_feeds configured")
         return
 
-    await refresh_topic_pool(db, query_list)
+    bing_added = 0
+    rss_added = 0
+
+    if bing_list:
+        bing_added = await refresh_topic_pool(db, bing_list)
+
+    if rss_list:
+        rss_added = await refresh_topic_pool_from_rss(db, rss_list)
+
+    if bing_added or rss_added:
+        logger.info("refresh_topics_done", bing_added=bing_added, rss_added=rss_added)
 
 
 # Register daily tasks
