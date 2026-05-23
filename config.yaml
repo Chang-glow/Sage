@@ -123,4 +123,8 @@ promises:
   broken_intimacy_penalty: -0.05 # 失信 intimacy 扣减
   fulfilled_intimacy_boost: 0.03 # 履行 intimacy 增加
   distrust_tag_duration_days: 30 # 不信任标签有效期
+  trust_tag_duration_days: 60      # 信任标签有效期（正向比负向持久）
   expectation_peak_days_before: 1  # 期待值在截止前 N 天达到峰值
+  reputation_high_importance_threshold: 0.6  # 高重要性阈值
+  reputation_boost_per_fulfillment: 0.01     # 每次高重要性履行声望增量
+  reputation_consecutive_threshold: 3        # 连续履行次数阈值

@@ -61,6 +61,12 @@ def build_agent_context(agent) -> dict[str, Any]:
         if isinstance(t, dict) and t.get("expires_at", "") > now
     ]
 
+    # Filter active trust tags
+    active_trust_tags = [
+        t for t in (agent.trust_tags or [])
+        if isinstance(t, dict) and t.get("expires_at", "") > now
+    ]
+
     return {
         "agent_id": str(agent.id),
         "agent_name": agent.nickname,
@@ -76,6 +82,7 @@ def build_agent_context(agent) -> dict[str, Any]:
         "agent_school_or_company": agent.school_or_company or "",
         "agent_chronotype": agent.chronotype or "normal",
         "distrust_tags": active_tags,
+        "trust_tags": active_trust_tags,
     }
 
 

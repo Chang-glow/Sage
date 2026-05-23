@@ -49,6 +49,8 @@ class Agent(Base):
     )
     solidified_memories: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(JSON)
     distrust_tags: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(JSON)
+    trust_tags: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(JSON)
+    reputation: Mapped[float] = mapped_column(Float, server_default=text("0.0"), default=0.0)
     persona_prompt: Mapped[Optional[str]] = mapped_column(String)
     status: Mapped[str] = mapped_column(
         String(20), server_default=text("'active'"), default="active"
