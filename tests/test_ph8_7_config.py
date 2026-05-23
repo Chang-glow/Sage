@@ -212,6 +212,12 @@ def test_natural_max_online_tracking_exists():
                         with patch("app.jobs.agent_lifecycle._step5_browse_and_interact"):
                             from app.jobs.agent_lifecycle import _run_online_flow_inner
 
+                            # v0.12.8 checkin query between step3 and step4 needs
+                            # explicit return chain: scalars().all() -> []
+                            mock_db.execute = AsyncMock()
+                            mock_db.execute.return_value = MagicMock()
+                            mock_db.execute.return_value.scalars.return_value.all.return_value = []
+
                             await _run_online_flow_inner(agent, mock_db, mock_llm)
 
         # Agent should have _online_started_at set to a datetime during online flow
