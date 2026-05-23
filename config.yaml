@@ -128,3 +128,8 @@ promises:
   reputation_high_importance_threshold: 0.6  # 高重要性阈值
   reputation_boost_per_fulfillment: 0.01     # 每次高重要性履行声望增量
   reputation_consecutive_threshold: 3        # 连续履行次数阈值
+
+# ── 冲突与反思 ──
+conflict:
+  reflection_cooldown_minutes: 10        # 冲突后反射冷却时间
+  conflict_mutual_reply_threshold: 5     # 互怼回合数阈值

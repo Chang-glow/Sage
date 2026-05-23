@@ -1234,6 +1234,85 @@ async def _promise_detection_hook(agent, post, decision, reply_result, db, llm_c
                 content=content[:80], due_time=str(due_time)[:19] if due_time else "none")
 
 
+async def _conflict_detect_hook(
+    agent: Agent,
+    post,
+    decision,
+    reply_result: dict | None,
+    db: AsyncSession,
+    llm_caller: Callable,
+) -> None:
+    """Detect conflict conditions and trigger guilt → reflection → action."""
+    from app.engine.conflict_engine import (
+        is_conflict_triggered,
+        conflict_cooldown,
+        run_conflict_reflection,
+        execute_conflict_action,
+    )
+
+    agent_id = str(agent.id)
+    opponent = post.author if post.author else None
+    if opponent is None or str(opponent.id) == agent_id:
+        return
+
+    opponent_id = str(opponent.id)
+
+    # Check cooldown
+    if not conflict_cooldown.is_ready(agent_id, opponent_id):
+        return
+
+    # Fetch replies on this post
+    from app.models.post import Reply
+    result = await db.execute(
+        select(Reply)
+        .where(Reply.post_id == post.id)
+        .order_by(Reply.created_at.asc())
+    )
+    replies = result.scalars().all()
+
+    if not replies or len(replies) < 5:
+        return
+
+    # Check if conflict conditions are met
+    if not is_conflict_triggered(agent.id, opponent.id, replies):
+        return
+
+    # Build conflict summary from replies
+    reply_texts = []
+    for r in replies[-10:]:  # last 10 replies as context
+        author_name = agent.nickname if r.author_id == agent.id else opponent.nickname
+        reply_texts.append(f"{author_name}: {r.content[:100]}")
+    conflict_summary = "\n".join(reply_texts)
+
+    # Run guilt → reflection
+    try:
+        result = await run_conflict_reflection(
+            agent, opponent, conflict_summary, db, llm_caller,
+        )
+    except Exception:
+        logger.exception("conflict_reflection_failed",
+                         agent_id=agent_id, opponent_id=opponent_id)
+        return
+
+    action = result.get("action", "let_go")
+    monologue = result.get("monologue", "")
+
+    logger.info("conflict_detected", agent_id=agent_id, opponent_id=opponent_id,
+                action=action, guilt_delta=result.get("guilt_delta", 0))
+
+    # Execute action
+    try:
+        await execute_conflict_action(
+            agent, opponent, post, action, monologue, db,
+        )
+    except Exception:
+        logger.exception("conflict_action_failed",
+                         agent_id=agent_id, action=action)
+
+    # Set cooldown
+    conflict_cooldown.set(agent_id, opponent_id)
+
+
 # Register hooks at module level — runs once on import
 browse_hook_registry.register("like", _like_hook, priority=50)
 browse_hook_registry.register("bookmark", _bookmark_hook, priority=60)
@@ -1242,4 +1321,5 @@ browse_hook_registry.register("slang", _slang_hook, priority=80)
 browse_hook_registry.register("promise_detect", _promise_detection_hook, priority=85)
 browse_hook_registry.register("search", _search_hook, priority=40)
 browse_hook_registry.register("memory_extract", _memory_extraction_hook, priority=90)
+browse_hook_registry.register("conflict_detect", _conflict_detect_hook, priority=95)
 browse_hook_registry.register("dm", _dm_hook, priority=100)
