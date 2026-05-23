@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 import structlog
@@ -48,9 +48,13 @@ async def add_xp(
     action: str,
     db: "AsyncSession",
     reference_id: str | None = None,
+    amount_override: int | None = None,
 ) -> int | None:
     """Add XP for an action and return new level if leveled up, else None."""
-    amount = _XP_TABLE.get(action)
+    if amount_override is not None:
+        amount = amount_override
+    else:
+        amount = _XP_TABLE.get(action)
     if amount is None:
         logger.warning("unknown_xp_action", action=action)
         return None
@@ -109,6 +113,42 @@ async def add_xp(
 
     await db.commit()
     return None
+
+
+async def perform_checkin(agent_id, bar_id, db: "AsyncSession") -> int | None:
+    """Daily check-in for an agent at a bar. Streak-based XP: day 1 = +1, ..., day 7 = +7 (capped).
+
+    Returns new level if leveled up, else None. No-op if already checked in today.
+    """
+    today = date.today()
+
+    result = await db.execute(
+        select(AgentBarLevel).where(
+            AgentBarLevel.agent_id == agent_id,
+            AgentBarLevel.bar_id == bar_id,
+        )
+    )
+    record = result.scalar_one_or_none()
+    if record is None:
+        record = AgentBarLevel(agent_id=agent_id, bar_id=bar_id, exp=0, level=1)
+        db.add(record)
+        await db.flush()
+
+    # Already checked in today?
+    if record.last_checkin_date and record.last_checkin_date.date() == today:
+        return None
+
+    # Compute streak
+    if record.last_checkin_date and record.last_checkin_date.date() == today - timedelta(days=1):
+        streak = min(record.checkin_streak + 1, 7)
+    else:
+        streak = 1
+
+    record.checkin_streak = streak
+    record.last_checkin_date = datetime.now(timezone.utc)
+
+    # XP = streak day (1-7)
+    return await add_xp(agent_id, bar_id, "login", db, amount_override=streak)
 
 
 async def get_agent_level(agent_id, bar_id, db: "AsyncSession") -> tuple[int, int, int]:

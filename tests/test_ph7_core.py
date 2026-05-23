@@ -654,6 +654,155 @@ def test_post_replied_xp_self_reply_skipped():
     asyncio.run(run())
 
 
+# ─── Item v0.12.8: 签到 XP ───
+
+
+def test_perform_checkin_first_time():
+    """First time checkin: creates record, streak=1, XP+1."""
+    from app.jobs.level_engine import perform_checkin
+    import asyncio
+
+    async def run():
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none = MagicMock(return_value=None)
+        mock_db.execute = AsyncMock(return_value=mock_result)
+        mock_db.add = MagicMock()
+        mock_db.flush = AsyncMock()
+        mock_db.commit = AsyncMock()
+
+        agent_id = uuid.uuid4()
+        bar_id = uuid.uuid4()
+        result = await perform_checkin(agent_id, bar_id, mock_db)
+
+        assert result is None  # no level-up from 1 XP
+        assert mock_db.add.called  # created AgentBarLevel record
+
+    asyncio.run(run())
+
+
+def test_perform_checkin_consecutive():
+    """Consecutive checkin: yesterday streak=3, today streak=4, XP+4."""
+    from datetime import date, datetime, timezone, timedelta
+    from app.jobs.level_engine import perform_checkin
+    import asyncio
+
+    async def run():
+        mock_db = AsyncMock()
+        fake_record = MagicMock()
+        fake_record.level = 1
+        fake_record.exp = 100
+        fake_record.checkin_streak = 3
+        yesterday = datetime.now(timezone.utc) - timedelta(days=1)
+        fake_record.last_checkin_date = yesterday
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none = MagicMock(return_value=fake_record)
+        mock_db.execute = AsyncMock(return_value=mock_result)
+        mock_db.add = MagicMock()
+        mock_db.flush = AsyncMock()
+        mock_db.commit = AsyncMock()
+
+        agent_id = uuid.uuid4()
+        bar_id = uuid.uuid4()
+        result = await perform_checkin(agent_id, bar_id, mock_db)
+
+        assert fake_record.checkin_streak == 4, f"streak should be 4, got {fake_record.checkin_streak}"
+        assert fake_record.exp == 104, f"exp should be +4, got {fake_record.exp}"
+
+    asyncio.run(run())
+
+
+def test_perform_checkin_same_day_noop():
+    """Same day checkin: should be a no-op, return None, no changes."""
+    from datetime import date, datetime, timezone
+    from app.jobs.level_engine import perform_checkin
+    import asyncio
+
+    async def run():
+        mock_db = AsyncMock()
+        fake_record = MagicMock()
+        fake_record.level = 1
+        fake_record.exp = 100
+        fake_record.checkin_streak = 3
+        fake_record.last_checkin_date = datetime.now(timezone.utc)
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none = MagicMock(return_value=fake_record)
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        agent_id = uuid.uuid4()
+        bar_id = uuid.uuid4()
+        result = await perform_checkin(agent_id, bar_id, mock_db)
+
+        assert result is None, "same day checkin should be no-op"
+        # exp and streak should be unchanged
+        assert fake_record.exp == 100, "exp should not change"
+        assert fake_record.checkin_streak == 3, "streak should not change"
+
+    asyncio.run(run())
+
+
+def test_perform_checkin_streak_cap():
+    """Streak at 7: stays at 7, XP+7 (not higher)."""
+    from datetime import date, datetime, timezone, timedelta
+    from app.jobs.level_engine import perform_checkin
+    import asyncio
+
+    async def run():
+        mock_db = AsyncMock()
+        fake_record = MagicMock()
+        fake_record.level = 1
+        fake_record.exp = 200
+        fake_record.checkin_streak = 7
+        yesterday = datetime.now(timezone.utc) - timedelta(days=1)
+        fake_record.last_checkin_date = yesterday
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none = MagicMock(return_value=fake_record)
+        mock_db.execute = AsyncMock(return_value=mock_result)
+        mock_db.add = MagicMock()
+        mock_db.flush = AsyncMock()
+        mock_db.commit = AsyncMock()
+
+        agent_id = uuid.uuid4()
+        bar_id = uuid.uuid4()
+        result = await perform_checkin(agent_id, bar_id, mock_db)
+
+        assert fake_record.checkin_streak == 7, f"streak capped at 7, got {fake_record.checkin_streak}"
+        assert fake_record.exp == 207, f"exp should be +7, got {fake_record.exp}"
+
+    asyncio.run(run())
+
+
+def test_perform_checkin_streak_break():
+    """Broken streak: last checkin 2 days ago → streak resets to 1, XP+1."""
+    from datetime import date, datetime, timezone, timedelta
+    from app.jobs.level_engine import perform_checkin
+    import asyncio
+
+    async def run():
+        mock_db = AsyncMock()
+        fake_record = MagicMock()
+        fake_record.level = 1
+        fake_record.exp = 100
+        fake_record.checkin_streak = 5
+        two_days_ago = datetime.now(timezone.utc) - timedelta(days=2)
+        fake_record.last_checkin_date = two_days_ago
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none = MagicMock(return_value=fake_record)
+        mock_db.execute = AsyncMock(return_value=mock_result)
+        mock_db.add = MagicMock()
+        mock_db.flush = AsyncMock()
+        mock_db.commit = AsyncMock()
+
+        agent_id = uuid.uuid4()
+        bar_id = uuid.uuid4()
+        result = await perform_checkin(agent_id, bar_id, mock_db)
+
+        assert fake_record.checkin_streak == 1, f"streak should reset to 1, got {fake_record.checkin_streak}"
+        assert fake_record.exp == 101, f"exp should be +1, got {fake_record.exp}"
+
+    asyncio.run(run())
+
+
 # ─── Orchestration: reply → media → meme → social → notification → level ───
 
 

@@ -204,6 +204,36 @@ async def _run_online_flow_inner(
     # Step 3: Bar selection
     bar_selection = await _step3_bar_selection(agent, db, llm_caller, ctx, summary)
 
+    # Step 3.5: Daily check-in (v0.12.8)
+    from app.jobs.level_engine import perform_checkin
+    from app.models.agent import Agent as AgentModel2
+    from app.models.bar import AgentBarLevel as AgentBarLevelModel
+    active_bars = bar_selection.get("active_bars", []) if bar_selection else []
+    casual_bars = bar_selection.get("casual_bars", []) if bar_selection else []
+    selected_names = set(active_bars + casual_bars)
+
+    # Load all bar levels for this agent
+    level_result = await db.execute(
+        select(AgentBarLevelModel).where(AgentBarLevelModel.agent_id == agent_uuid)
+    )
+    agent_levels = {abl.bar.name: abl for abl in level_result.scalars().all() if abl.bar}
+
+    checked_in = set()
+    # Auto-checkin for Lv7+ bars
+    for bar_name, abl in agent_levels.items():
+        if abl.level >= 7:
+            await perform_checkin(agent_uuid, abl.bar_id, db)
+            checked_in.add(bar_name)
+
+    # Checkin for selected bars (Lv1-6, not already done)
+    for bar_name in selected_names:
+        if bar_name not in checked_in:
+            abl = agent_levels.get(bar_name)
+            bar_id = abl.bar_id if abl else None
+            if bar_id:
+                await perform_checkin(agent_uuid, bar_id, db)
+                checked_in.add(bar_name)
+
     # Step 4: Notification processing
     await _step4_notifications(agent, db, llm_caller)
 
