@@ -113,6 +113,7 @@ async def resolve_election(
             await remove_owner(bar, "弹劾通过", db)
             return {"result": "owner_removed", "votes_for": election.votes_for, "votes_against": election.votes_against}
         else:
+            await _impeachment_failed_retaliation(election, bar, db)
             return {"result": "owner_retained", "votes_for": election.votes_for, "votes_against": election.votes_against}
 
     if election.type == "election":
@@ -132,6 +133,54 @@ async def resolve_election(
             return {"result": "sage_managed"}
 
     return {"result": "election_resolved", "votes_for": election.votes_for, "votes_against": election.votes_against}
+
+
+async def _impeachment_failed_retaliation(
+    election: Election, bar: Bar, db: AsyncSession
+) -> None:
+    """After failed impeachment, high-extraversion low-agreeableness owner retaliates.
+
+    Reduces intimacy with the impeachment initiator if owner personality meets criteria:
+    extraversion > 0.5 AND agreeableness < 0.4 (high外向 + low宜人).
+    """
+    from app.models.relationship import Relationship
+
+    owner_id = bar.current_owner_id or election.target_agent_id
+    if not owner_id:
+        return
+
+    result = await db.execute(select(Agent).where(Agent.id == owner_id))
+    owner = result.scalars().first()
+    if not owner or not owner.personality_vector:
+        return
+
+    pv = owner.personality_vector
+    extraversion = pv.get("extraversion", 0.5)
+    agreeableness = pv.get("agreeableness", 0.5)
+
+    if not (extraversion > 0.5 and agreeableness < 0.4):
+        return  # Mild personality, no retaliation
+
+    initiator_id = election.initiator_id
+    if not initiator_id:
+        return
+
+    rel_result = await db.execute(
+        select(Relationship).where(
+            Relationship.agent_id == owner_id,
+            Relationship.target_id == initiator_id,
+        )
+    )
+    rel = rel_result.scalars().first()
+    if rel:
+        rel.intimacy = max(0.0, rel.intimacy - 0.1)
+    else:
+        rel = Relationship(
+            agent_id=owner_id,
+            target_id=initiator_id,
+            intimacy=-0.1,
+        )
+        db.add(rel)
 
 
 async def step_down_owner(

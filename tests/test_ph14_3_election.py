@@ -150,7 +150,8 @@ class TestResolveElection(unittest.TestCase):
 
         async def _run():
             with patch("app.engine.election_engine.remove_owner") as mock_remove:
-                return await resolve_election(election, bar, mock_db)
+                with patch("app.engine.election_engine._impeachment_failed_retaliation") as mock_retal:
+                    return await resolve_election(election, bar, mock_db)
 
         import asyncio
         result = asyncio.run(_run())
@@ -227,6 +228,93 @@ class TestResolveElection(unittest.TestCase):
         self.assertEqual(result["result"], "sage_managed")
         self.assertTrue(bar.is_sage_managed)
         self.assertEqual(election.status, "resolved")
+
+
+class TestImpeachmentRetaliation(unittest.TestCase):
+    """Tests for _impeachment_failed_retaliation — owner retaliation after failed impeachment."""
+
+    def test_impeachment_failed_retaliation_active(self):
+        """High extraversion + low agreeableness owner retaliates against initiator."""
+        from app.engine.election_engine import _impeachment_failed_retaliation
+
+        mock_db = AsyncMock()
+        owner_id = uuid.uuid4()
+        initiator_id = uuid.uuid4()
+
+        bar = MagicMock()
+        bar.id = uuid.uuid4()
+        bar.current_owner_id = owner_id
+
+        election = MagicMock()
+        election.type = "impeach"
+        election.initiator_id = initiator_id
+        election.target_agent_id = owner_id
+        election.bar_id = bar.id
+
+        # Owner with high extraversion, low agreeableness
+        owner_agent = MagicMock()
+        owner_agent.id = owner_id
+        owner_agent.personality_vector = {"extraversion": 0.8, "agreeableness": 0.2}
+
+        # Existing relationship
+        existing_rel = MagicMock()
+        existing_rel.intimacy = 0.5
+
+        agent_result = MagicMock()
+        agent_result.scalars.return_value.first.return_value = owner_agent
+
+        rel_result = MagicMock()
+        rel_result.scalars.return_value.first.return_value = existing_rel
+
+        mock_db.execute = AsyncMock(side_effect=[agent_result, rel_result])
+
+        added = []
+        mock_db.add = lambda obj: added.append(obj)
+
+        async def _run():
+            await _impeachment_failed_retaliation(election, bar, mock_db)
+
+        import asyncio
+        asyncio.run(_run())
+        self.assertEqual(existing_rel.intimacy, 0.4)  # 0.5 - 0.1
+
+    def test_impeachment_failed_no_retaliation(self):
+        """Mild personality owner (low extraversion, high agreeableness) does NOT retaliate."""
+        from app.engine.election_engine import _impeachment_failed_retaliation
+
+        mock_db = AsyncMock()
+        owner_id = uuid.uuid4()
+        initiator_id = uuid.uuid4()
+
+        bar = MagicMock()
+        bar.id = uuid.uuid4()
+        bar.current_owner_id = owner_id
+
+        election = MagicMock()
+        election.type = "impeach"
+        election.initiator_id = initiator_id
+        election.target_agent_id = owner_id
+        election.bar_id = bar.id
+
+        # Mild owner: low extraversion, high agreeableness
+        owner_agent = MagicMock()
+        owner_agent.id = owner_id
+        owner_agent.personality_vector = {"extraversion": 0.3, "agreeableness": 0.7}
+
+        agent_result = MagicMock()
+        agent_result.scalars.return_value.first.return_value = owner_agent
+
+        mock_db.execute = AsyncMock(return_value=agent_result)
+
+        added = []
+        mock_db.add = lambda obj: added.append(obj)
+
+        async def _run():
+            await _impeachment_failed_retaliation(election, bar, mock_db)
+
+        import asyncio
+        asyncio.run(_run())
+        self.assertEqual(len(added), 0)  # No relationship changes
 
 
 class TestStepDownOwner(unittest.TestCase):
