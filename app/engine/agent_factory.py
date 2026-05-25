@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import random
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Callable
 
 import structlog
@@ -232,6 +233,10 @@ class AgentDraft:
     # Step 7
     notification_settings: dict = field(default_factory=dict)
     stealth_mode: bool = False
+    # Step 8: world dynamic fields (v0.13.0)
+    hometown: str | None = None
+    is_away: bool = False
+    birthday: date | None = None
 
 
 # ── Step functions ──
@@ -259,6 +264,13 @@ def generate_hard_conditions() -> AgentDraft:
         ["early", "normal", "nightowl", "chaotic"],
         weights=[0.15, 0.55, 0.25, 0.05],
     )[0]
+
+    # Random birthday (month + day, year is placeholder)
+    import calendar as _cal
+    month = random.randint(1, 12)
+    max_day = _cal.monthrange(2000, month)[1]
+    day = random.randint(1, max_day)
+    draft.birthday = date(2000, month, day)
 
     return draft
 
@@ -579,6 +591,9 @@ async def _persist_agent(draft: AgentDraft, db_session) -> Agent:
         notification_settings=draft.notification_settings,
         stealth_mode=draft.stealth_mode,
         status="active",
+        hometown=draft.hometown,
+        is_away=draft.is_away or False,
+        birthday=draft.birthday,
     )
     db_session.add(agent)
     await db_session.flush()

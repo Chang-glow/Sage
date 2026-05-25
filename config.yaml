@@ -159,3 +159,18 @@ conflict:
   reflection_cooldown_minutes: 10        # 冲突后反射冷却时间
   conflict_mutual_reply_threshold: 5     # 互怼回合数阈值
   memory_importance_boost: 0.2           # 深度争吵记忆重要度提升
+
+# ── 世界观动态（v0.13.0）──
+world_dynamic:
+  education_transfer_probability: 0.04        # 转学年概率
+  education_transfer_cross_city_ratio: 0.3    # 转学中跨市比例
+  education_gaokao_local_ratio: 0.35          # 高考本地升学比例
+  education_incoming_transfer_probability: 0.02  # 转入事件日概率
+  career_job_change_probability: 0.07         # 调动/跳槽年概率
+  career_unemployment_probability: 0.03       # 失业年概率
+  career_job_search_interval_days: 30         # 求职尝试间隔
+  career_unemployed_at_start_ratio: 0.15      # 初入职场待业比例
+  city_project_interval_days: 20              # 城市项目播报间隔
+  education_mobility_hour: 2                  # 教育流动性检查时间
+  career_mobility_hour: 3                     # 职业流动性检查时间
+  city_development_hour: 10                   # 城市发展事件生成时间

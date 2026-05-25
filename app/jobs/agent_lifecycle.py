@@ -169,6 +169,13 @@ async def _run_online_flow_inner(
     ctx["life_history_sample"] = _life_history_sample(agent)
     ctx["recent_interactions"] = "暂无新互动"
 
+    # v0.13.0: Inject pending life events (birthday, education, career transitions)
+    from datetime import date as date_type
+    today_date = date_type.today()
+    from app.engine.world_dynamic import get_pending_life_events_for_context
+    pending_events = get_pending_life_events_for_context(agent, today_date)
+    ctx["life_events_today"] = "\n".join(f"- {e}" for e in pending_events) if pending_events else "（今日无特别事件）"
+
     try:
         result = await execute("offline_summary", ctx, llm_caller=llm_caller, agent_id=agent_id, db=db)
         if result.status == "success" and isinstance(result.parsed, dict):

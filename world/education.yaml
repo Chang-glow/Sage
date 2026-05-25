@@ -88,3 +88,59 @@ institutions:
     district: RES-002
     note: 护理/药剂方向
     weight: 3
+
+  # ── 小学（6-12 岁）──
+  - id: PRI-001
+    name: 平陵一小
+    type: 小学
+    age_range: [6, 12]
+    boarding: day_only
+    district: RES-001
+    note: 老城区，口碑最好
+    weight: 8
+
+  - id: PRI-002
+    name: 平陵二小
+    type: 小学
+    age_range: [6, 12]
+    boarding: day_only
+    district: RES-002
+    note: 新城区
+    weight: 8
+
+  - id: PRI-003
+    name: 平陵实验小学
+    type: 小学
+    age_range: [6, 12]
+    boarding: day_only
+    district: RES-003
+    note: 开发区，新建
+    weight: 5
+
+  # ── 初中（12-15 岁）──
+  - id: MID-001
+    name: 平陵一中初中部
+    type: 初中
+    age_range: [12, 15]
+    boarding: day_only
+    district: RES-001
+    note: 省重点中学的初中部，升学率最高
+    weight: 5
+
+  - id: MID-002
+    name: 平陵二中初中部
+    type: 初中
+    age_range: [12, 15]
+    boarding: day_only
+    district: RES-002
+    note: 普通初中
+    weight: 8
+
+  - id: MID-003
+    name: 平陵实验中学
+    type: 初中
+    age_range: [12, 15]
+    boarding: day_only
+    district: RES-003
+    note: 新城区，近年口碑上升
+    weight: 6

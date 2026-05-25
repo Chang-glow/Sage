@@ -1,0 +1,96 @@
+# 平陵市娱乐与消费场所
+venues:
+  - id: ENT-001
+    name: 夜色酒吧
+    type: 酒吧
+    location: 老城区
+    district: RES-001
+    note: 老城区唯一的酒吧，中年人为主，偶尔有年轻人去
+    min_age: 18
+
+  - id: ENT-002
+    name: 星辰网吧
+    type: 网吧
+    location: 大学城片区
+    district: RES-003
+    note: 职院和师院学生的聚集地，通宵十块钱
+    min_age: 14
+
+  - id: ENT-003
+    name: 好声音KTV
+    type: KTV
+    location: 平陵广场旁
+    district: RES-002
+    note: 平陵唯一像样的KTV，周末要排队
+    min_age: 14
+
+restaurants:
+  - id: EAT-001
+    name: 老杨头炒鸡
+    type: 炒菜馆
+    location: 老城区
+    district: RES-001
+    note: 开了四十年，老板老杨头脾气坏嗓门大，说话像吵架，手艺平陵公认第一。没有菜单，当天买到什么炒什么，招牌辣炒鸡铁锅大火，出锅锅气直冲天花板
+
+  - id: EAT-002
+    name: 桥南酱骨架
+    type: 骨头馆
+    location: 陵水河边
+    district: RES-001
+    note: 三十年老店，店面破旧招牌掉了一半。大锅老卤，招牌酱骨架每天限量两锅。老板姓蒋，沉默寡言，从开店到收摊说不到十句话
+
+  - id: EAT-003
+    name: 平陵大酒店
+    type: 本地菜馆
+    location: 老城区
+    district: RES-001
+    note: 一栋三层旧楼，名字唬人，实际做平陵本地菜。糖醋里脊外酥里嫩，红烧划水浓油赤酱，三十年配方没变过。婚宴谢师宴同学聚会都在这里办
+
+  - id: EAT-004
+    name: 老刘家羊肉汤
+    type: 羊肉汤馆
+    location: 老城区
+    district: RES-001
+    note: 只在冬天开的店。老板老刘每年入冬开张，夏天关门旅游。羊肉汤清汤底，配现打烧饼。店面小桌椅旧，炉灶擦得锃亮
+
+  - id: EAT-005
+    name: 胖子酸菜鱼
+    type: 酸菜鱼馆
+    location: 新城区
+    district: RES-002
+    note: 开了十几年，老板两百斤自己掌勺。酸菜鱼用脸盆装量大夸张，酸菜自己腌，鱼每天早上去市场挑
+
+city_projects_pool:
+  - type: 工业入驻
+    template: "开发区新入驻一家{industry}厂，预计招工{number}人"
+    industries: ["汽车配件", "电子元器件", "食品加工", "纺织服装", "建材"]
+    employee_range: [100, 500]
+
+  - type: 商业综合体
+    template: "{location}开建一座商业综合体，包含超市、影院和餐饮"
+    locations: ["老城区", "新城区", "大学城片区"]
+
+  - type: 老城区改造
+    template: "老城区{street}启动旧改工程，涉及{number}户居民"
+    streets: ["人民路", "解放路", "文化街"]
+    household_range: [50, 200]
+
+  - type: 新店开业
+    template: "{location}新开一家{shop_type}「{name}」，老板是{origin}人"
+    locations: ["老城区", "新城区", "陵水河边"]
+    shop_types: ["奶茶店", "火锅店", "理发店", "小超市", "五金店"]
+    origins: ["本地", "省城", "隔壁市", "外省"]
+
+  - type: 公交调整
+    template: "平陵公交{route}路调整走向，新增{new_stop}站，取消{old_stop}站"
+    route_numbers: ["1", "2", "3", "5", "7"]
+
+infrastructure_events:
+  - "陵水河大桥启动为期三个月的维修加固工程，通行受限"
+  - "人民路中段封闭施工，预计工期两个月"
+  - "开发区新增一条公交线路5路，连接火车站和大学城"
+  - "老城区供水管网改造，部分区域间歇性停水"
+  - "平陵火车站站前广场重新铺设，出租车候车区临时迁移"
+  - "新城区新建一座社区卫生服务中心"
+  - "陵水河沿岸步道三期工程完工，新增两公里步行道"
+  - "开发区规划展览馆对外开放，展示未来五年建设蓝图"

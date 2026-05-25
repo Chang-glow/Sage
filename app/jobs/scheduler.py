@@ -130,6 +130,13 @@ async def sage_news_task(db, llm_caller: Callable) -> None:
         f"- {t.title}: {t.summary or ''}" for t in topics
     ) if topics else "今日无特别外部事件"
 
+    # v0.13.0: Inject city development announcements from world_dynamic
+    from app.engine.world_dynamic import get_pending_city_announcements, clear_pending_city_announcements
+    pending = get_pending_city_announcements()
+    if pending:
+        external_text += "\n\n【平陵本地动态】\n" + "\n".join(f"- {a}" for a in pending)
+        clear_pending_city_announcements()
+
     ctx = {
         "city_events_today": external_text,
         "weather_season": "五月 · 初夏，微暖",
@@ -374,6 +381,32 @@ daily_task_registry.register(
     check_promise_deadlines_task,
     hour=yaml_config.promises.deadline_check_hour,
     minute=yaml_config.promises.deadline_check_minute,
+)
+
+# ── v0.13.0: World dynamic system ──
+from app.engine.world_dynamic import (
+    world_dynamic_education_task,
+    world_dynamic_career_task,
+    world_dynamic_city_task,
+)
+
+daily_task_registry.register(
+    "world_dynamic_education",
+    world_dynamic_education_task,
+    hour=yaml_config.world_dynamic.education_mobility_hour,
+    minute=0,
+)
+daily_task_registry.register(
+    "world_dynamic_career",
+    world_dynamic_career_task,
+    hour=yaml_config.world_dynamic.career_mobility_hour,
+    minute=0,
+)
+daily_task_registry.register(
+    "world_dynamic_city",
+    world_dynamic_city_task,
+    hour=yaml_config.world_dynamic.city_development_hour,
+    minute=0,
 )
 
 

@@ -11,6 +11,7 @@ _education_cache: list[dict] | None = None
 _companies_cache: list[dict] | None = None
 _interests_cache: list[dict] | None = None
 _residential_cache: list[dict] | None = None
+_entertainment_cache: dict | None = None
 
 
 def _load_yaml(filename: str) -> dict:
@@ -85,3 +86,26 @@ def get_residential_by_id(area_id: str) -> dict | None:
         if area["id"] == area_id:
             return area
     return None
+
+
+def load_entertainment() -> dict:
+    global _entertainment_cache
+    if _entertainment_cache is None:
+        _entertainment_cache = _load_yaml("entertainment.yaml")
+    return _entertainment_cache
+
+
+def get_venues() -> list[dict]:
+    return load_entertainment().get("venues", [])
+
+
+def get_restaurants() -> list[dict]:
+    return load_entertainment().get("restaurants", [])
+
+
+def get_city_projects_pool() -> list[dict]:
+    return load_entertainment().get("city_projects_pool", [])
+
+
+def get_infrastructure_events() -> list[str]:
+    return load_entertainment().get("infrastructure_events", [])

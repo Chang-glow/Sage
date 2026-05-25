@@ -64,6 +64,11 @@ class Agent(Base):
     updated_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), onupdate=func.now()
     )
+    hometown: Mapped[Optional[str]] = mapped_column(String(100))
+    is_away: Mapped[bool] = mapped_column(
+        Boolean, server_default=text("false"), default=False
+    )
+    birthday: Mapped[Optional[date]] = mapped_column(Date)
 
     previous: Mapped[Optional[Agent]] = relationship(
         "Agent", remote_side=[id], back_populates="successors"
