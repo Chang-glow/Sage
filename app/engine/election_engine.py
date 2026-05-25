@@ -115,7 +115,22 @@ async def resolve_election(
         else:
             return {"result": "owner_retained", "votes_for": election.votes_for, "votes_against": election.votes_against}
 
-    # Leadership election: simplified — if votes_for > 0, someone wins
+    if election.type == "election":
+        from app.models.post import Post as PostModel
+        declare_result = await db.execute(
+            select(PostModel).where(
+                PostModel.bar_id == bar.id,
+                PostModel.title.contains("竞选宣言"),
+            ).order_by(PostModel.created_at.desc()).limit(1)
+        )
+        winner_post = declare_result.scalars().first()
+        if winner_post is not None:
+            await set_new_owner(bar, winner_post.author_id, db)
+            return {"result": "owner_elected", "winner_id": str(winner_post.author_id)}
+        else:
+            bar.is_sage_managed = True
+            return {"result": "sage_managed"}
+
     return {"result": "election_resolved", "votes_for": election.votes_for, "votes_against": election.votes_against}
 
 

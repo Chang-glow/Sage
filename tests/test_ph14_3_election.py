@@ -157,6 +157,77 @@ class TestResolveElection(unittest.TestCase):
         self.assertEqual(result["result"], "owner_retained")
         self.assertEqual(election.status, "resolved")
 
+    def test_resolve_election_with_winner(self):
+        """Election type: declaration post author becomes new owner."""
+        from app.engine.election_engine import resolve_election
+
+        mock_db = AsyncMock()
+        bar = MagicMock()
+        bar.id = uuid.uuid4()
+        bar.current_owner_id = None
+
+        election = MagicMock()
+        election.id = uuid.uuid4()
+        election.type = "election"
+        election.status = "active"
+        election.votes_for = 5
+        election.votes_against = 1
+        election.bar_id = bar.id
+
+        winner_id = uuid.uuid4()
+        winner_post = MagicMock()
+        winner_post.author_id = winner_id
+
+        mock_post_result = MagicMock()
+        mock_post_result.scalars.return_value.first.return_value = winner_post
+
+        mock_db.execute = AsyncMock(return_value=mock_post_result)
+
+        call_log = []
+
+        async def mock_set_new_owner(b, new_id, db_arg):
+            call_log.append(("set_new_owner", new_id))
+
+        async def _run():
+            with patch("app.engine.election_engine.set_new_owner", side_effect=mock_set_new_owner):
+                return await resolve_election(election, bar, mock_db)
+
+        import asyncio
+        result = asyncio.run(_run())
+        self.assertEqual(result["result"], "owner_elected")
+        self.assertEqual(election.status, "resolved")
+        self.assertEqual(len(call_log), 1)
+        self.assertEqual(call_log[0][1], winner_id)
+
+    def test_resolve_election_no_candidates(self):
+        """Election type: no declaration posts → sage managed."""
+        from app.engine.election_engine import resolve_election
+
+        mock_db = AsyncMock()
+        bar = MagicMock()
+        bar.id = uuid.uuid4()
+        bar.is_sage_managed = False
+
+        election = MagicMock()
+        election.type = "election"
+        election.status = "active"
+        election.votes_for = 0
+        election.votes_against = 0
+        election.bar_id = bar.id
+
+        mock_post_result = MagicMock()
+        mock_post_result.scalars.return_value.first.return_value = None
+        mock_db.execute = AsyncMock(return_value=mock_post_result)
+
+        async def _run():
+            return await resolve_election(election, bar, mock_db)
+
+        import asyncio
+        result = asyncio.run(_run())
+        self.assertEqual(result["result"], "sage_managed")
+        self.assertTrue(bar.is_sage_managed)
+        self.assertEqual(election.status, "resolved")
+
 
 class TestStepDownOwner(unittest.TestCase):
     """Tests for step_down_owner."""
