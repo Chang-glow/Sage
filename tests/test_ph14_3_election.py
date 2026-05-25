@@ -236,6 +236,7 @@ class TestImpeachmentRetaliation(unittest.TestCase):
     def test_impeachment_failed_retaliation_active(self):
         """High extraversion + low agreeableness owner retaliates against initiator."""
         from app.engine.election_engine import _impeachment_failed_retaliation
+        from app.models.notification import Notification
 
         mock_db = AsyncMock()
         owner_id = uuid.uuid4()
@@ -246,6 +247,7 @@ class TestImpeachmentRetaliation(unittest.TestCase):
         bar.current_owner_id = owner_id
 
         election = MagicMock()
+        election.id = uuid.uuid4()
         election.type = "impeach"
         election.initiator_id = initiator_id
         election.target_agent_id = owner_id
@@ -254,6 +256,7 @@ class TestImpeachmentRetaliation(unittest.TestCase):
         # Owner with high extraversion, low agreeableness
         owner_agent = MagicMock()
         owner_agent.id = owner_id
+        owner_agent.nickname = "暴躁吧主"
         owner_agent.personality_vector = {"extraversion": 0.8, "agreeableness": 0.2}
 
         # Existing relationship
@@ -278,9 +281,23 @@ class TestImpeachmentRetaliation(unittest.TestCase):
         asyncio.run(_run())
         self.assertEqual(existing_rel.intimacy, 0.4)  # 0.5 - 0.1
 
+        # Verify high-priority Notification was created
+        notifs = [o for o in added if isinstance(o, Notification)]
+        self.assertEqual(len(notifs), 1)
+        notif = notifs[0]
+        self.assertEqual(notif.recipient_id, initiator_id)
+        self.assertEqual(notif.sender_id, owner_id)
+        self.assertEqual(notif.type, "impeachment_failed")
+        self.assertEqual(notif.priority, "high")
+        self.assertEqual(notif.reference_type, "election")
+        self.assertEqual(notif.reference_id, election.id)
+        self.assertIn("未通过", notif.message)
+        self.assertIn("很在意", notif.message)
+
     def test_impeachment_failed_no_retaliation(self):
         """Mild personality owner (low extraversion, high agreeableness) does NOT retaliate."""
         from app.engine.election_engine import _impeachment_failed_retaliation
+        from app.models.notification import Notification
 
         mock_db = AsyncMock()
         owner_id = uuid.uuid4()
@@ -291,6 +308,7 @@ class TestImpeachmentRetaliation(unittest.TestCase):
         bar.current_owner_id = owner_id
 
         election = MagicMock()
+        election.id = uuid.uuid4()
         election.type = "impeach"
         election.initiator_id = initiator_id
         election.target_agent_id = owner_id
@@ -299,6 +317,7 @@ class TestImpeachmentRetaliation(unittest.TestCase):
         # Mild owner: low extraversion, high agreeableness
         owner_agent = MagicMock()
         owner_agent.id = owner_id
+        owner_agent.nickname = "温和吧主"
         owner_agent.personality_vector = {"extraversion": 0.3, "agreeableness": 0.7}
 
         agent_result = MagicMock()
@@ -314,7 +333,62 @@ class TestImpeachmentRetaliation(unittest.TestCase):
 
         import asyncio
         asyncio.run(_run())
-        self.assertEqual(len(added), 0)  # No relationship changes
+
+        # Verify high-priority Notification was created even without retaliation
+        notifs = [o for o in added if isinstance(o, Notification)]
+        self.assertEqual(len(notifs), 1)
+        notif = notifs[0]
+        self.assertEqual(notif.recipient_id, initiator_id)
+        self.assertEqual(notif.sender_id, owner_id)
+        self.assertEqual(notif.type, "impeachment_failed")
+        self.assertEqual(notif.priority, "high")
+        self.assertIn("未通过", notif.message)
+        self.assertNotIn("很在意", notif.message)
+
+    def test_impeachment_failed_creates_high_priority_memory(self):
+        """Impeachment failure creates a high-priority Notification for the initiator."""
+        from app.engine.election_engine import _impeachment_failed_retaliation
+        from app.models.notification import Notification
+
+        mock_db = AsyncMock()
+        added_objects = []
+        mock_db.add = lambda obj: added_objects.append(obj)
+
+        owner_id = uuid.uuid4()
+        initiator_id = uuid.uuid4()
+
+        bar = MagicMock()
+        bar.id = uuid.uuid4()
+        bar.current_owner_id = owner_id
+
+        election = MagicMock()
+        election.id = uuid.uuid4()
+        election.initiator_id = initiator_id
+        election.target_agent_id = owner_id
+
+        # Owner with mild personality (no intimacy retaliation)
+        owner = MagicMock()
+        owner.id = owner_id
+        owner.nickname = "温和吧主"
+        owner.personality_vector = {"extraversion": 0.3, "agreeableness": 0.7}
+
+        agent_result = MagicMock()
+        agent_result.scalars.return_value.first.return_value = owner
+        mock_db.execute = AsyncMock(return_value=agent_result)
+
+        async def _run():
+            await _impeachment_failed_retaliation(election, bar, mock_db)
+
+        import asyncio
+        asyncio.run(_run())
+
+        # Check Notification was created
+        notifs = [o for o in added_objects if isinstance(o, Notification)]
+        self.assertEqual(len(notifs), 1)
+        notif = notifs[0]
+        self.assertEqual(notif.recipient_id, initiator_id)
+        self.assertEqual(notif.type, "impeachment_failed")
+        self.assertEqual(notif.priority, "high")
 
 
 class TestStepDownOwner(unittest.TestCase):

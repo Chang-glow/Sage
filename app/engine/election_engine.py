@@ -142,7 +142,11 @@ async def _impeachment_failed_retaliation(
 
     Reduces intimacy with the impeachment initiator if owner personality meets criteria:
     extraversion > 0.5 AND agreeableness < 0.4 (high外向 + low宜人).
+
+    Always creates a high-priority Notification for the initiator as a weighted memory
+    (04-1 §5.3: 弹劾事件作为高权重记忆存储).
     """
+    from app.models.notification import Notification
     from app.models.relationship import Relationship
 
     owner_id = bar.current_owner_id or election.target_agent_id
@@ -158,29 +162,46 @@ async def _impeachment_failed_retaliation(
     extraversion = pv.get("extraversion", 0.5)
     agreeableness = pv.get("agreeableness", 0.5)
 
-    if not (extraversion > 0.5 and agreeableness < 0.4):
-        return  # Mild personality, no retaliation
+    retaliated = False
 
+    if extraversion > 0.5 and agreeableness < 0.4:
+        initiator_id = election.initiator_id
+        if initiator_id:
+            rel_result = await db.execute(
+                select(Relationship).where(
+                    Relationship.agent_id == owner_id,
+                    Relationship.target_id == initiator_id,
+                )
+            )
+            rel = rel_result.scalars().first()
+            if rel:
+                rel.intimacy = max(0.0, rel.intimacy - 0.1)
+            else:
+                rel = Relationship(
+                    agent_id=owner_id,
+                    target_id=initiator_id,
+                    intimacy=-0.1,
+                )
+                db.add(rel)
+            retaliated = True
+
+    # Always create a high-priority memory notification for the initiator
     initiator_id = election.initiator_id
     if not initiator_id:
         return
 
-    rel_result = await db.execute(
-        select(Relationship).where(
-            Relationship.agent_id == owner_id,
-            Relationship.target_id == initiator_id,
-        )
+    owner_name = owner.nickname if owner else "吧主"
+
+    notif = Notification(
+        recipient_id=initiator_id,
+        sender_id=owner_id,
+        type="impeachment_failed",
+        priority="high",
+        reference_type="election",
+        reference_id=election.id,
+        message=f"你对 @{owner_name} 的弹劾未通过。{'吧主对此事很在意。' if retaliated else ''}",
     )
-    rel = rel_result.scalars().first()
-    if rel:
-        rel.intimacy = max(0.0, rel.intimacy - 0.1)
-    else:
-        rel = Relationship(
-            agent_id=owner_id,
-            target_id=initiator_id,
-            intimacy=-0.1,
-        )
-        db.add(rel)
+    db.add(notif)
 
 
 async def step_down_owner(
