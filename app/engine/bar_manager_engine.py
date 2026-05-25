@@ -10,6 +10,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.engine.bar_mod_engine import record_mod_action
 from app.models.agent import Agent
 from app.models.bar import AgentBarLevel, Bar, BarMember, BarModLog, BarRule
 from app.models.post import Post, Reply
@@ -218,6 +219,24 @@ async def revise_bar_rules(
         is_current=True,
     )
     db.add(new_rule)
+
+    # Create announcement post
+    old_content = current_rule.content if current_rule else ""
+    announcement = Post(
+        bar_id=bar.id,
+        author_id=owner.id,
+        title=f"【吧规修订】{bar.name} 吧规已更新 (v{new_version})",
+        content=f"吧规已由 @{owner.nickname} 修订为 v{new_version}。\n\n"
+        f"旧版吧规：\n{old_content}\n\n新版吧规：\n{new_content}",
+        is_pinned=True,
+    )
+    db.add(announcement)
+
+    # Record mod action
+    await record_mod_action(
+        owner.id, bar.id, "revise_rules", "rule", new_rule.id, "修订吧规", db
+    )
+
     return new_rule
 
 

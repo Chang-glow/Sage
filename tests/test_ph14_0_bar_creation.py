@@ -240,26 +240,31 @@ class TestReviseBarRules(unittest.TestCase):
     """Tests for revise_bar_rules."""
 
     def test_revise_rules_archives_old(self):
-        """Revising archives old BarRule and creates new with version+1."""
+        """Revising archives old BarRule, creates new with version+1, + announcement post + mod log."""
         from app.engine.bar_manager_engine import revise_bar_rules
+        from app.models.post import Post
 
         mock_db = AsyncMock()
         mock_db.add = MagicMock()  # Not async
         bar = MagicMock()
         bar.id = uuid.uuid4()
+        bar.name = "测试吧"
         owner = MagicMock()
         owner.id = uuid.uuid4()
 
         old_rule = MagicMock()
         old_rule.is_current = True
         old_rule.version = 1
+        old_rule.content = "旧吧规内容"
 
         mock_result = MagicMock()
         mock_result.scalars.return_value.first.return_value = old_rule
         mock_db.execute = AsyncMock(return_value=mock_result)
 
         async def _run():
-            return await revise_bar_rules(bar, owner, "更新后的吧规内容", mock_db)
+            with patch("app.engine.bar_manager_engine.record_mod_action") as mock_record:
+                mock_record.return_value = MagicMock()
+                return await revise_bar_rules(bar, owner, "更新后的吧规内容", mock_db)
 
         import asyncio
         new_rule = asyncio.run(_run())
@@ -269,6 +274,52 @@ class TestReviseBarRules(unittest.TestCase):
         self.assertEqual(new_rule.version, 2)
         self.assertTrue(new_rule.is_current)
         self.assertEqual(new_rule.content, "更新后的吧规内容")
+
+        # Verify an announcement Post was created
+        db_add_calls = mock_db.add.call_args_list
+        posts_added = [c[0][0] for c in db_add_calls if isinstance(c[0][0], Post)]
+        self.assertEqual(len(posts_added), 1)
+        announcement = posts_added[0]
+        self.assertTrue(announcement.is_pinned)
+        self.assertIn("吧规修订", announcement.title)
+        self.assertIn("v2", announcement.title)
+        self.assertEqual(announcement.bar_id, bar.id)
+        self.assertEqual(announcement.author_id, owner.id)
+
+    def test_revise_rules_writes_mod_log(self):
+        """revise_bar_rules calls record_mod_action with correct args."""
+        from app.engine.bar_manager_engine import revise_bar_rules
+
+        mock_db = AsyncMock()
+        mock_db.add = MagicMock()
+        bar = MagicMock()
+        bar.id = uuid.uuid4()
+        bar.name = "测试吧"
+        owner = MagicMock()
+        owner.id = uuid.uuid4()
+
+        old_rule = MagicMock()
+        old_rule.is_current = True
+        old_rule.version = 1
+        old_rule.content = "旧吧规"
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.first.return_value = old_rule
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        async def _run():
+            with patch("app.engine.bar_manager_engine.record_mod_action") as mock_record:
+                mock_record.return_value = MagicMock()
+                await revise_bar_rules(bar, owner, "新吧规内容", mock_db)
+                return mock_record
+
+        import asyncio
+        mock_record = asyncio.run(_run())
+        mock_record.assert_called_once()
+        call_args = mock_record.call_args[0]
+        self.assertEqual(call_args[0], owner.id)  # moderator_id
+        self.assertEqual(call_args[1], bar.id)    # bar_id
+        self.assertEqual(call_args[2], "revise_rules")  # action
 
 
 class TestCanCreateBar(unittest.TestCase):
