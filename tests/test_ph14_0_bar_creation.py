@@ -360,5 +360,98 @@ class TestCanCreateBar(unittest.TestCase):
         self.assertFalse(result)
 
 
+class TestBarApplicationInterestCheck(unittest.TestCase):
+    """P2-2: Interest heat check before bar application LLM evaluation."""
+
+    def setUp(self):
+        """Reset cooldowns before each test."""
+        from app.jobs import agent_lifecycle
+        agent_lifecycle._bar_app_cooldowns.clear()
+
+    def test_bar_application_low_interest_skipped(self):
+        """Agent has no recent related posts → LLM not called."""
+        from app.jobs.agent_lifecycle import _bar_application_check_hook
+
+        mock_db = AsyncMock()
+        mock_llm = AsyncMock()
+
+        agent = MagicMock()
+        agent.id = uuid.uuid4()
+
+        post = MagicMock()
+        post.title = "有没有人一起建个【观鸟吧】？"
+        post.content = "最近观鸟的人好多"
+        post.bar_id = None
+
+        async def _run():
+            with patch("app.jobs.agent_lifecycle._check_agent_topic_interest", new_callable=AsyncMock) as mock_interest:
+                mock_interest.return_value = False
+                with patch("app.jobs.agent_lifecycle._extract_topic_keywords", return_value=["观鸟"]):
+                    with patch("app.engine.bar_manager_engine.can_create_bar", return_value=True):
+                        with patch("app.engine.bar_manager_engine.evaluate_bar_application_post") as mock_eval:
+                            with patch("app.engine.feature_flags.plugin_registry.is_enabled", return_value=True):
+                                await _bar_application_check_hook(agent, post, None, None, mock_db, mock_llm)
+                                mock_eval.assert_not_called()
+
+        import asyncio
+        asyncio.run(_run())
+
+    def test_bar_application_high_interest_proceeds(self):
+        """Agent has 3+ related recent posts → LLM evaluation proceeds."""
+        from app.jobs.agent_lifecycle import _bar_application_check_hook
+
+        mock_db = AsyncMock()
+        mock_llm = AsyncMock()
+
+        agent = MagicMock()
+        agent.id = uuid.uuid4()
+
+        post = MagicMock()
+        post.title = "有没有人一起建个【观鸟吧】？"
+        post.content = "最近观鸟的人好多"
+        post.bar_id = None
+
+        async def _run():
+            with patch("app.jobs.agent_lifecycle._check_agent_topic_interest", new_callable=AsyncMock) as mock_interest:
+                mock_interest.return_value = True
+                with patch("app.jobs.agent_lifecycle._extract_topic_keywords", return_value=["观鸟"]):
+                    with patch("app.engine.bar_manager_engine.can_create_bar", return_value=True):
+                        with patch("app.engine.bar_manager_engine.evaluate_bar_application_post") as mock_eval:
+                            mock_eval.return_value = None  # Return None to stop after LLM call
+                            with patch("app.engine.feature_flags.plugin_registry.is_enabled", return_value=True):
+                                await _bar_application_check_hook(agent, post, None, None, mock_db, mock_llm)
+                                mock_eval.assert_called_once()
+
+        import asyncio
+        asyncio.run(_run())
+
+    def test_bar_application_no_keywords_proceeds(self):
+        """When _extract_topic_keywords returns empty list, skip interest check and proceed."""
+        from app.jobs.agent_lifecycle import _bar_application_check_hook
+
+        mock_db = AsyncMock()
+        mock_llm = AsyncMock()
+
+        agent = MagicMock()
+        agent.id = uuid.uuid4()
+
+        post = MagicMock()
+        post.title = "hello"
+        post.content = "world"
+        post.bar_id = None
+
+        async def _run():
+            with patch("app.jobs.agent_lifecycle._extract_topic_keywords", return_value=[]):
+                with patch("app.engine.bar_manager_engine.can_create_bar", return_value=True):
+                    with patch("app.engine.bar_manager_engine.evaluate_bar_application_post") as mock_eval:
+                        mock_eval.return_value = None
+                        with patch("app.engine.feature_flags.plugin_registry.is_enabled", return_value=True):
+                            await _bar_application_check_hook(agent, post, None, None, mock_db, mock_llm)
+                            mock_eval.assert_called_once()
+
+        import asyncio
+        asyncio.run(_run())
+
+
 if __name__ == "__main__":
     unittest.main()

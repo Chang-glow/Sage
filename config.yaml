@@ -190,6 +190,7 @@ bar_management:
   impeachment_voting_days: 2         # 弹劾投票天数
   election_voting_days: 2            # 竞选投票天数
   impeachment_supporters_min: 3      # 弹劾最低附议人数
+  impeachment_complainers_min: 3     # 弹劾最低抱怨人数（不同作者）
   impeachment_percentage_threshold: 0.2  # 弹劾成员占比阈值
   owner_inactivity_check_hour: 3     # 吧主失联检查时间
   election_deadline_check_hour: 2    # 选举截止检查时间

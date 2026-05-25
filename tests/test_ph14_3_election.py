@@ -407,5 +407,122 @@ class TestSetNewOwner(unittest.TestCase):
         self.assertEqual(bar.current_owner_id, new_owner_id)
 
 
+class TestImpeachmentMultiComplaint(unittest.TestCase):
+    """P2-4: Impeachment second trigger condition — multi-complainer scanning."""
+
+    def setUp(self):
+        """Reset cooldowns before each test."""
+        from app.jobs import agent_lifecycle
+        agent_lifecycle._impeachment_check_cooldowns.clear()
+
+    def test_impeachment_multi_complaint_triggers(self):
+        """When 3+ distinct authors complain about owner, impeachment proceeds."""
+        from app.jobs.agent_lifecycle import _impeachment_check_hook
+
+        mock_db = AsyncMock()
+        mock_llm = AsyncMock()
+
+        agent = MagicMock()
+        agent.id = uuid.uuid4()
+
+        post = MagicMock()
+        post.id = uuid.uuid4()
+        post.title = "弹劾吧主"
+        post.content = "吧主太过分了，应该弹劾"
+        post.bar_id = uuid.uuid4()
+        post.author = MagicMock()
+        post.author.id = uuid.uuid4()
+
+        bar = MagicMock()
+        bar.id = post.bar_id
+        bar.current_owner_id = uuid.uuid4()
+
+        # Mock bar query
+        mock_bar_result = MagicMock()
+        mock_bar_result.scalars.return_value.first.return_value = bar
+
+        # Mock supporters
+        from app.engine.bar_manager_engine import count_application_supporters
+
+        async def mock_supporters(*args, **kwargs):
+            return {"supporter_count": 5, "total_replies": 6, "has_serious_opposition": False}
+
+        async def _run():
+            with patch("app.jobs.agent_lifecycle._count_owner_complaints", new_callable=AsyncMock) as mock_complaints:
+                mock_complaints.return_value = 3  # Enough complainers
+                with patch("app.engine.election_engine.create_impeachment", new_callable=AsyncMock) as mock_create:
+                    mock_create.return_value = MagicMock()
+                    with patch("app.engine.bar_manager_engine.count_application_supporters", side_effect=mock_supporters):
+                        with patch("app.engine.feature_flags.plugin_registry.is_enabled", return_value=True):
+                            # db.execute needs to return bar for the bar query
+                            mock_db.execute = AsyncMock(return_value=mock_bar_result)
+                            await _impeachment_check_hook(agent, post, None, None, mock_db, mock_llm)
+                            mock_complaints.assert_called_once()
+                            mock_create.assert_called_once()
+
+        import asyncio
+        asyncio.run(_run())
+
+    def test_impeachment_single_complaint_skipped(self):
+        """When only 1 person complains, impeachment is skipped."""
+        from app.jobs.agent_lifecycle import _impeachment_check_hook
+
+        mock_db = AsyncMock()
+        mock_llm = AsyncMock()
+
+        agent = MagicMock()
+        agent.id = uuid.uuid4()
+
+        post = MagicMock()
+        post.id = uuid.uuid4()
+        post.title = "弹劾吧主"
+        post.content = "吧主不管事，该弹劾"
+        post.bar_id = uuid.uuid4()
+        post.author = MagicMock()
+        post.author.id = uuid.uuid4()
+
+        async def _run():
+            with patch("app.jobs.agent_lifecycle._count_owner_complaints", new_callable=AsyncMock) as mock_complaints:
+                mock_complaints.return_value = 1  # Not enough complainers
+                with patch("app.engine.election_engine.create_impeachment", new_callable=AsyncMock) as mock_create:
+                    with patch("app.engine.feature_flags.plugin_registry.is_enabled", return_value=True):
+                        await _impeachment_check_hook(agent, post, None, None, mock_db, mock_llm)
+                        mock_complaints.assert_called_once()
+                        mock_create.assert_not_called()
+
+        import asyncio
+        asyncio.run(_run())
+
+    def test_impeachment_no_complaints_still_checks_keywords(self):
+        """No complaints but has keywords → _count_owner_complaints called, but returns 0, skip."""
+        from app.jobs.agent_lifecycle import _impeachment_check_hook
+
+        mock_db = AsyncMock()
+        mock_llm = AsyncMock()
+
+        agent = MagicMock()
+        agent.id = uuid.uuid4()
+
+        post = MagicMock()
+        post.id = uuid.uuid4()
+        post.title = "弹劾"
+        post.content = "弹劾弹劾弹劾"
+        post.bar_id = uuid.uuid4()
+        post.author = MagicMock()
+        post.author.id = uuid.uuid4()
+
+        async def _run():
+            with patch("app.jobs.agent_lifecycle._count_owner_complaints", new_callable=AsyncMock) as mock_complaints:
+                mock_complaints.return_value = 0  # Zero complaints
+                with patch("app.engine.election_engine.create_impeachment", new_callable=AsyncMock) as mock_create:
+                    with patch("app.engine.feature_flags.plugin_registry.is_enabled", return_value=True):
+                        await _impeachment_check_hook(agent, post, None, None, mock_db, mock_llm)
+                        mock_complaints.assert_called_once()
+                        mock_create.assert_not_called()
+
+        import asyncio
+        asyncio.run(_run())
+
+
 if __name__ == "__main__":
     unittest.main()

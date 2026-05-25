@@ -1450,6 +1450,57 @@ async def _conflict_detect_hook(
     conflict_cooldown.set(agent_id, opponent_id)
 
 
+# ─── P2-2 helper: interest heat check for bar applications ───
+
+
+def _extract_topic_keywords(text: str) -> list[str]:
+    """Extract topic keywords from text. Looks for 【...】 patterns and known topic indicators."""
+    import re
+    keywords = []
+    # 【关键词】 模式
+    bracketed = re.findall(r'【(.+?)】', text)
+    keywords.extend(bracketed)
+    # 常见话题词
+    topic_indicators = ["吧", "讨论", "交流", "分享", "求助", "推荐"]
+    for indicator in topic_indicators:
+        idx = text.find(indicator)
+        if idx >= 2:
+            # 取前面的词作为可能的主题
+            keywords.append(text[max(0, idx - 4):idx])
+    return keywords[:5]  # 最多 5 个
+
+
+async def _check_agent_topic_interest(
+    agent_id: str, keywords: list[str], db
+) -> bool:
+    """Check if agent has recent activity related to the topic keywords.
+
+    Queries agent's recent posts (7 days) for keyword matches.
+    Returns True if >= 3 related posts found.
+    """
+    from datetime import timedelta
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+
+    result = await db.execute(
+        select(Post).where(
+            Post.author_id == agent_id,
+            Post.created_at >= cutoff,
+        )
+    )
+    recent_posts = result.scalars().all()
+
+    match_count = 0
+    for p in recent_posts:
+        text = (getattr(p, "title", "") or "") + " " + (getattr(p, "content", "") or "")
+        if any(kw in text for kw in keywords):
+            match_count += 1
+            if match_count >= 3:
+                return True
+
+    return False
+
+
 # ─── Phase 14 hook: bar application check ───
 
 _bar_app_cooldowns: dict[str, datetime] = {}  # agent_id → last check time
@@ -1488,6 +1539,19 @@ async def _bar_application_check_hook(agent, post, decision, reply_result, db, l
     # Check if agent can create more bars
     if not await can_create_bar(agent_id, db):
         return
+
+    # === P2-2: 兴趣热度前置判断 ===
+    # 检查 agent 最近 7 天在该主题方向的活跃度
+    post_topic_keywords = _extract_topic_keywords(
+        getattr(post, "title", "") + " " + getattr(post, "content", "")
+    )
+    if post_topic_keywords:
+        recent_interest = await _check_agent_topic_interest(
+            agent_id, post_topic_keywords, db
+        )
+        if not recent_interest:
+            return  # 低兴趣，跳过 LLM 调用
+    # === 结束 P2-2 ===
 
     # Evaluate if this post is a bar application
     bar_info = await evaluate_bar_application_post(post, db, llm_caller)
@@ -1585,6 +1649,42 @@ async def _bar_mod_browse_hook(agent, post, decision, reply_result, db, llm_call
             logger.exception("mod_action_failed", agent_id=agent_id, bar_id=bar_id_str)
 
 
+# ─── P2-4 helper: count multi-complainer for impeachment ───
+
+
+async def _count_owner_complaints(bar_id: str, db) -> int:
+    """Count distinct authors complaining about the bar owner in last 7 days.
+
+    Scans posts in the bar for negative keywords about the owner.
+    """
+    from datetime import timedelta
+
+    negative_keywords = ["过分", "乱", "不管", "差", "烂", "不行", "太差", "不好"]
+    owner_keywords = ["吧主"]
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+
+    result = await db.execute(
+        select(Post).where(
+            Post.bar_id == bar_id,
+            Post.created_at >= cutoff,
+        )
+    )
+    recent_posts = result.scalars().all()
+
+    complainers = set()
+    for p in recent_posts:
+        text = (getattr(p, "title", "") or "") + " " + (getattr(p, "content", "") or "")
+        has_owner_ref = any(kw in text for kw in owner_keywords)
+        has_negative = any(kw in text for kw in negative_keywords)
+        if has_owner_ref and has_negative:
+            author = getattr(p, "author_id", None)
+            if author:
+                complainers.add(str(author))
+
+    return len(complainers)
+
+
 # ─── Phase 14 hook: impeachment check ───
 
 _impeachment_check_cooldowns: dict[str, datetime] = {}  # bar_id → last check
@@ -1617,6 +1717,15 @@ async def _impeachment_check_hook(agent, post, decision, reply_result, db, llm_c
 
     _impeachment_check_cooldowns[bar_id_str] = datetime.now(timezone.utc)
 
+    # === P2-4: 多人抱怨扫描 ===
+    # 扫描该吧近 7 天帖子，统计含"吧主+负面词"的不同作者数
+    from app.config import config as yaml_config
+    complaint_count = await _count_owner_complaints(bar_id_str, db)
+    min_complainers = int(yaml_config.bar_management.impeachment_complainers_min)
+    if complaint_count < min_complainers:
+        return  # 抱怨人数不足，不触发弹劾
+    # === 结束 P2-4 ===
+
     # Fetch bar and owner info
     from sqlalchemy import select as _select
     from app.models.bar import Bar
@@ -1629,7 +1738,6 @@ async def _impeachment_check_hook(agent, post, decision, reply_result, db, llm_c
     from app.engine.bar_manager_engine import count_application_supporters
     supporters = await count_application_supporters(post, db)
 
-    from app.config import config as yaml_config
     min_supporters = int(yaml_config.bar_management.impeachment_supporters_min)
 
     if supporters["supporter_count"] >= min_supporters:
