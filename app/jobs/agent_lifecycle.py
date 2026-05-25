@@ -1507,6 +1507,84 @@ async def _bar_application_check_hook(agent, post, decision, reply_result, db, l
             logger.exception("bar_creation_failed", agent_id=agent_id, bar_name=bar_info.get("bar_name"))
 
 
+# ─── Phase 14 hook: bar mod action ───
+
+_bar_mod_cooldowns: dict[str, datetime] = {}  # bar_id:moderator_id → last check time
+
+
+async def _bar_mod_browse_hook(agent, post, decision, reply_result, db, llm_caller):
+    """Bar owner/sub-mod checks posts for violations during browsing."""
+    from app.engine.feature_flags import plugin_registry
+    if not plugin_registry.is_enabled("bar_management"):
+        return
+
+    from app.config import config as yaml_config
+    from app.engine.bar_mod_engine import hide_post, check_mod_permission
+
+    # Only process posts that belong to a bar
+    post_bar_id = getattr(post, "bar_id", None)
+    if post_bar_id is None:
+        return
+
+    agent_id = str(agent.id)
+    bar_id_str = str(post_bar_id)
+
+    # Cooldown per agent-bar pair
+    cooldown_key = f"{agent_id}:{bar_id_str}"
+    last = _bar_mod_cooldowns.get(cooldown_key)
+    if last is not None:
+        cooldown_minutes = int(yaml_config.bar_management.mod_action_cooldown_minutes)
+        from datetime import timedelta
+        if datetime.now(timezone.utc) - last < timedelta(minutes=cooldown_minutes):
+            return
+
+    # Check if agent is mod of this bar
+    perm = await check_mod_permission(agent_id, bar_id_str, "hide", db)
+    if not perm["can_act"]:
+        return
+
+    _bar_mod_cooldowns[cooldown_key] = datetime.now(timezone.utc)
+
+    # Use mod_judgment skill to check for violations
+    from app.skills.executor import execute
+    try:
+        result = await execute(
+            "mod_judgment",
+            {
+                "post_title": getattr(post, "title", ""),
+                "post_content": getattr(post, "content", ""),
+                "post_author": getattr(post.author, "nickname", "") if getattr(post, "author", None) else "",
+                "bar_rules": "",
+                "mod_role": perm["role"],
+                "mod_name": agent.nickname or "",
+            },
+            llm_caller=llm_caller,
+            db=db,
+        )
+    except Exception:
+        return
+
+    if result.status != "success" or not isinstance(result.parsed, dict):
+        return
+
+    action = result.parsed.get("action_recommended", "none")
+    reason = result.parsed.get("reason", "违反吧规")
+
+    if action == "delete" and result.parsed.get("severity") == "major":
+        try:
+            # Fetch bar object for the mod action
+            from sqlalchemy import select
+            from app.models.bar import Bar
+            bar_result = await db.execute(select(Bar).where(Bar.id == post_bar_id))
+            bar = bar_result.scalars().first()
+            if bar is not None:
+                await hide_post(agent, post, bar, reason, db)
+                logger.info("mod_action_hide", agent_id=agent_id, bar_id=bar_id_str,
+                            post_id=str(post.id), reason=reason)
+        except Exception:
+            logger.exception("mod_action_failed", agent_id=agent_id, bar_id=bar_id_str)
+
+
 # Register hooks at module level — runs once on import
 browse_hook_registry.register("like", _like_hook, priority=50)
 browse_hook_registry.register("bookmark", _bookmark_hook, priority=60)
@@ -1518,3 +1596,4 @@ browse_hook_registry.register("memory_extract", _memory_extraction_hook, priorit
 browse_hook_registry.register("conflict_detect", _conflict_detect_hook, priority=95)
 browse_hook_registry.register("dm", _dm_hook, priority=100)
 browse_hook_registry.register("bar_application_check", _bar_application_check_hook, priority=35)
+browse_hook_registry.register("bar_mod_action", _bar_mod_browse_hook, priority=30)
