@@ -257,6 +257,30 @@ class TestBanMember(unittest.TestCase):
         result = asyncio.run(_run())
         self.assertIsNotNone(result)
 
+    def test_owner_ban_no_cosign_denied(self):
+        """Owner needs sub_mod co-sign for ban. No sub_mod → denied."""
+        from app.engine.bar_mod_engine import ban_member
+
+        mock_db = AsyncMock()
+        moderator = MagicMock()
+        moderator.id = uuid.uuid4()
+        target_id = str(uuid.uuid4())
+        bar = MagicMock()
+        bar.id = uuid.uuid4()
+
+        async def _run():
+            with patch("app.engine.bar_mod_engine.check_mod_permission") as mock_perm:
+                mock_perm.return_value = {"can_act": True, "role": "owner", "reason": ""}
+                # db.execute returns None for sub_mod co-sign query
+                mock_result = MagicMock()
+                mock_result.scalars.return_value.first.return_value = None
+                mock_db.execute = AsyncMock(return_value=mock_result)
+                return await ban_member(moderator, target_id, bar, 7, "违规发言", mock_db)
+
+        import asyncio
+        result = asyncio.run(_run())
+        self.assertIsNone(result)
+
     def test_sub_mod_ban_over_limit_denied(self):
         from app.engine.bar_mod_engine import ban_member
 

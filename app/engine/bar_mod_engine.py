@@ -154,7 +154,8 @@ async def ban_member(
 ) -> BarModLog | None:
     """Ban a member from a bar for `days` days.
 
-    Owner: max 7 days. Sub-mod: max 3 days, needs another sub-mod co-sign.
+    Owner: max 7 days, needs another sub-mod co-sign.
+    Sub-mod: max 3 days, needs another sub-mod co-sign.
     Returns None if ban cannot be applied.
     """
     from app.config import config as yaml_config
@@ -179,8 +180,8 @@ async def ban_member(
     if role == "owner" and days > owner_max:
         return None
 
-    # Sub-mod needs co-sign: check for another sub_mod
-    if role == "sub_mod" and days > 0:
+    # Owner and sub-mod need co-sign: check for another sub_mod
+    if role in ("sub_mod", "owner") and days > 0:
         result = await db.execute(
             select(BarMember).where(
                 BarMember.bar_id == bar.id,
