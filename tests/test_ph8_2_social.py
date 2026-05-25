@@ -124,7 +124,7 @@ def test_like_hook_creates_like_when_no_reply():
             mock_result.parsed = {"will_like": True, "reason": "感兴趣"}
             mock_exec.return_value = mock_result
 
-            with patch("app.jobs.agent_lifecycle._count_today_likes", return_value=3):
+            with patch("app.jobs.agent_lifecycle._count_today_likes", return_value=0):
                 with patch("app.jobs.agent_lifecycle.build_relationship_context",
                            return_value={"relationship_intimacy": 0.3}):
                     with patch("app.jobs.social_engine.adjust_after_like"):

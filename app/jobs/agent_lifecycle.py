@@ -868,6 +868,10 @@ async def _like_hook(agent, post, decision, reply_result, db, llm_caller) -> Non
         bar_id = post.bar.id
     if bar_id:
         await add_xp(agent.id, bar_id, "liked", db)
+        # Post author gets +1 XP when their post is liked
+        post_author_id = getattr(post, "author_id", None)
+        if post_author_id and str(post_author_id) != str(agent.id):
+            await add_xp(post_author_id, bar_id, "post_liked", db)
 
     logger.info("like_created", agent_id=agent_id, post_id=str(post.id))
 
@@ -915,8 +919,13 @@ async def _bookmark_hook(agent, post, decision, reply_result, db, llm_caller) ->
     if post_author_id and str(post_author_id) != str(agent.id):
         from app.jobs.social_engine import adjust_after_bookmark
         from app.jobs.notification_engine import notify_bookmark
+        from app.jobs.level_engine import add_xp
         await adjust_after_bookmark(agent.id, post_author_id, db)
         await notify_bookmark(post_author_id, agent.id, str(post.id), db)
+        # Post author gets +5 XP when their post is bookmarked
+        bar_id = getattr(post, "bar_id", None)
+        if bar_id:
+            await add_xp(post_author_id, bar_id, "bookmarked", db)
 
     logger.info("bookmark_created", agent_id=agent_id, post_id=str(post.id))
 

@@ -64,23 +64,20 @@ def test_level_total_levels_from_config():
     )
 
 
-def test_reply_xp_cap_per_day():
-    """add_xp for 'reply' action enforces max_replies_exp_per_day cap (XP, not count)."""
-    from unittest.mock import AsyncMock, MagicMock, patch
-    from app.config import config as yaml_config
+def test_reply_xp_unlimited():
+    """add_xp for 'reply' action has no daily cap — unlimited XP per day."""
+    from unittest.mock import AsyncMock, MagicMock
 
     agent_id = uuid.uuid4()
     bar_id = uuid.uuid4()
-    max_xp_per_day = yaml_config.level.max_replies_exp_per_day  # 15 XP
     xp_per_reply = 3  # from _XP_TABLE["reply"]
-    max_replies = max_xp_per_day // xp_per_reply  # 5 replies before cap
 
     async def _run():
         mock_db = AsyncMock()
 
         mock_record = MagicMock()
-        mock_record.level = 1
-        mock_record.exp = 0
+        mock_record.level = 8  # high enough to avoid level-up side effects
+        mock_record.exp = 500
 
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_record
@@ -89,25 +86,13 @@ def test_reply_xp_cap_per_day():
 
         from app.jobs.level_engine import add_xp
 
-        # First max_replies should all succeed
-        for i in range(max_replies):
+        # 20 replies should all give XP with no cap
+        for i in range(20):
             await add_xp(agent_id, bar_id, "reply", mock_db)
 
-        expected_xp = xp_per_reply * max_replies
+        expected_xp = 500 + xp_per_reply * 20
         assert mock_record.exp == expected_xp, (
-            f"Expected {expected_xp} XP after {max_replies} replies, got {mock_record.exp}"
-        )
-
-        # One more reply should be capped — no additional XP
-        await add_xp(agent_id, bar_id, "reply", mock_db)
-        assert mock_record.exp == expected_xp, (
-            f"XP should still be {expected_xp} after cap, got {mock_record.exp}"
-        )
-
-        # Non-reply actions should still work normally
-        await add_xp(agent_id, bar_id, "post", mock_db)
-        assert mock_record.exp == expected_xp + 10, (
-            f"Post XP should not be affected by reply cap"
+            f"Expected {expected_xp} XP after 20 replies with no cap, got {mock_record.exp}"
         )
 
     asyncio.run(_run())

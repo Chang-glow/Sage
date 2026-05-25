@@ -440,18 +440,24 @@ def test_xp_for_level_monotonic():
 def test_xp_for_level_max():
     from app.jobs.level_engine import xp_for_level, MAX_LEVEL
 
-    assert xp_for_level(MAX_LEVEL) == 50000
-    assert xp_for_level(MAX_LEVEL + 1) == 50000
+    assert xp_for_level(MAX_LEVEL) == 30000
+    assert xp_for_level(MAX_LEVEL + 1) == 30000  # capped
 
 
 def test_xp_table_values():
     from app.jobs.level_engine import _XP_TABLE
 
-    assert _XP_TABLE["post"] == 10
+    assert _XP_TABLE["post"] == 5
     assert _XP_TABLE["reply"] == 3
     assert _XP_TABLE["liked"] == 1
     assert _XP_TABLE["login"] == 1
     assert _XP_TABLE["followed"] == 2
+    assert _XP_TABLE["post_replied"] == 3
+    assert _XP_TABLE["bookmarked"] == 5
+    assert _XP_TABLE["unbookmarked"] == -5
+    assert _XP_TABLE["post_liked"] == 1
+    assert _XP_TABLE["post_featured"] == 50
+    assert _XP_TABLE["post_unfeatured"] == -50
 
 
 def test_get_agent_level_default():
@@ -497,11 +503,11 @@ def test_get_agent_level_max():
 
 
 def test_post_replied_xp_table_entry():
-    """v0.12.7: _XP_TABLE must include post_replied = 1."""
+    """v0.12.7: _XP_TABLE must include post_replied = 3."""
     from app.jobs.level_engine import _XP_TABLE
 
     assert "post_replied" in _XP_TABLE, "post_replied should be in _XP_TABLE"
-    assert _XP_TABLE["post_replied"] == 1
+    assert _XP_TABLE["post_replied"] == 3
 
 
 def test_post_replied_xp_adds_to_author():
@@ -530,8 +536,8 @@ def test_post_replied_xp_adds_to_author():
     asyncio.run(run())
 
 
-def test_post_replied_xp_daily_cap_per_post():
-    """Same post, same day: 11th reply should be capped and return None."""
+def test_post_replied_xp_unlimited():
+    """post_replied has no daily cap — unlimited XP for being replied to."""
     from app.jobs.level_engine import add_xp
     import asyncio
 
@@ -539,8 +545,8 @@ def test_post_replied_xp_daily_cap_per_post():
         mock_db = AsyncMock()
         mock_result = MagicMock()
         fake_record = MagicMock()
-        fake_record.level = 1
-        fake_record.exp = 0
+        fake_record.level = 8
+        fake_record.exp = 300
         mock_result.scalar_one_or_none = MagicMock(return_value=fake_record)
         mock_db.execute = AsyncMock(return_value=mock_result)
         mock_db.add = MagicMock()
@@ -551,33 +557,25 @@ def test_post_replied_xp_daily_cap_per_post():
         bar_id = uuid.uuid4()
         post_id = str(uuid.uuid4())
 
-        # First 10 calls should succeed (no cap hit)
-        for i in range(10):
-            result = await add_xp(author_id, bar_id, "post_replied", mock_db, reference_id=post_id)
-            assert result is None, f"call {i+1} should not level up"
+        # 20 calls all succeed, no cap
+        for i in range(20):
+            await add_xp(author_id, bar_id, "post_replied", mock_db, reference_id=post_id)
 
-        # 11th call should be capped
-        result = await add_xp(author_id, bar_id, "post_replied", mock_db, reference_id=post_id)
-        assert result is None, "capped call returns None"
-        # exp should still be 10 (not 11) — the 11th call was rejected before adding
-        assert fake_record.exp == 10, f"exp should be 10 after cap, got {fake_record.exp}"
+        assert fake_record.exp == 360, f"all 20 replies should count, exp={fake_record.exp}"
 
     asyncio.run(run())
 
 
-def test_post_replied_xp_different_posts_independent_caps():
-    """Cap for post A should not affect post B."""
-    from app.jobs.level_engine import add_xp, _daily_post_author_xp
+def test_post_replied_xp_no_cap():
+    """post_replied XP has no daily cap — unlimited for encouraging interaction."""
+    from app.jobs.level_engine import add_xp
     import asyncio
 
     async def run():
-        # Clear tracking dicts before test
-        _daily_post_author_xp.clear()
-
         mock_db = AsyncMock()
         fake_record = MagicMock()
-        fake_record.level = 1
-        fake_record.exp = 0
+        fake_record.level = 8
+        fake_record.exp = 300
         mock_result = MagicMock()
         mock_result.scalar_one_or_none = MagicMock(return_value=fake_record)
         mock_db.execute = AsyncMock(return_value=mock_result)
@@ -587,17 +585,13 @@ def test_post_replied_xp_different_posts_independent_caps():
 
         author_id = uuid.uuid4()
         bar_id = uuid.uuid4()
-        post_a = str(uuid.uuid4())
-        post_b = str(uuid.uuid4())
+        post_id = str(uuid.uuid4())
 
-        # Fill post A cap
-        for _ in range(10):
-            await add_xp(author_id, bar_id, "post_replied", mock_db, reference_id=post_a)
+        # 30 calls should all succeed (no cap)
+        for i in range(30):
+            result = await add_xp(author_id, bar_id, "post_replied", mock_db, reference_id=post_id)
 
-        # Post B should still work
-        result = await add_xp(author_id, bar_id, "post_replied", mock_db, reference_id=post_b)
-        assert result is None, "post B should still get XP"
-        assert fake_record.exp >= 11, f"post B should add XP beyond post A cap, exp={fake_record.exp}"
+        assert fake_record.exp == 390, f"all 30 replies should count, exp={fake_record.exp}"
 
     asyncio.run(run())
 
@@ -799,6 +793,101 @@ def test_perform_checkin_streak_break():
 
         assert fake_record.checkin_streak == 1, f"streak should reset to 1, got {fake_record.checkin_streak}"
         assert fake_record.exp == 101, f"exp should be +1, got {fake_record.exp}"
+
+    asyncio.run(run())
+
+
+def test_perform_checkin_owner_bonus():
+    """Bar owner gets +23 XP bonus on daily check-in."""
+    from datetime import date, datetime, timezone, timedelta
+    from app.jobs.level_engine import perform_checkin
+    import asyncio
+
+    async def run():
+        mock_db = AsyncMock()
+        mock_db.add = MagicMock()
+        mock_db.flush = AsyncMock()
+        mock_db.commit = AsyncMock()
+
+        class FakeRecord:
+            level: int = 8
+            exp: int = 500
+            checkin_streak: int = 3
+            last_checkin_date = datetime.now(timezone.utc) - timedelta(days=1)
+
+        fake_record = FakeRecord()
+        owner_id = uuid.uuid4()
+
+        class FakeBar:
+            current_owner_id = owner_id
+
+        # call order: 1=perform_checkin query, 2=add_xp query, 3=Bar query, 4=add_xp query
+        call_count = [0]
+        async def mock_execute(query):
+            call_count[0] += 1
+            mock_result = MagicMock()
+            if call_count[0] == 3:
+                mock_result.scalar_one_or_none = lambda: FakeBar()
+            else:
+                mock_result.scalar_one_or_none = lambda: fake_record
+            return mock_result
+
+        mock_db.execute = mock_execute
+        bar_id = uuid.uuid4()
+        result = await perform_checkin(owner_id, bar_id, mock_db)
+
+        # streak XP (4) + owner bonus (23) = 27 XP added to 500
+        assert fake_record.exp == 527, f"expected 500 + 4 + 23 = 527, got {fake_record.exp}"
+
+    asyncio.run(run())
+
+
+def test_perform_checkin_moderator_bonus():
+    """Bar moderator gets +10 XP bonus on daily check-in."""
+    from datetime import date, datetime, timezone, timedelta
+    from app.jobs.level_engine import perform_checkin
+    import asyncio
+
+    async def run():
+        mock_db = AsyncMock()
+        mock_db.add = MagicMock()
+        mock_db.flush = AsyncMock()
+        mock_db.commit = AsyncMock()
+
+        class FakeRecord:
+            level: int = 8
+            exp: int = 500
+            checkin_streak: int = 3
+            last_checkin_date = datetime.now(timezone.utc) - timedelta(days=1)
+
+        fake_record = FakeRecord()
+
+        class FakeBar:
+            current_owner_id = uuid.uuid4()  # not the agent
+
+        class FakeMember:
+            role: str = "moderator"
+
+        # call order: 1=perform_checkin query, 2=add_xp query, 3=Bar query, 4=BarMember query, 5=add_xp query
+        call_count = [0]
+        async def mock_execute(query):
+            call_count[0] += 1
+            mock_result = MagicMock()
+            if call_count[0] == 3:
+                mock_result.scalar_one_or_none = lambda: FakeBar()
+            elif call_count[0] == 4:
+                mock_result.scalar_one_or_none = lambda: FakeMember()
+            else:
+                mock_result.scalar_one_or_none = lambda: fake_record
+            return mock_result
+
+        mock_db.execute = mock_execute
+        agent_id = uuid.uuid4()
+        bar_id = uuid.uuid4()
+        result = await perform_checkin(agent_id, bar_id, mock_db)
+
+        # streak XP (4) + moderator bonus (10) = 14 XP added to 500
+        assert fake_record.exp == 514, f"expected 500 + 4 + 10 = 514, got {fake_record.exp}"
 
     asyncio.run(run())
 

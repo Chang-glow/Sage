@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from datetime import date, datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
@@ -16,30 +15,51 @@ if TYPE_CHECKING:
 logger = structlog.get_logger()
 
 _XP_TABLE = {
-    "post": 10,
+    "post": 5,
     "reply": 3,
     "liked": 1,
     "login": 1,
     "followed": 2,
-    "post_replied": 1,
+    "post_replied": 3,
+    "bookmarked": 5,
+    "unbookmarked": -5,
+    "post_liked": 1,
+    "post_featured": 50,
+    "post_unfeatured": -50,
 }
+
+_CHECKIN_BONUS_MODERATOR = 10
+_CHECKIN_BONUS_OWNER = 23
 
 MAX_LEVEL = yaml_config.level.total_levels
 
-# Daily reply XP tracking: agent_id → {date_str: total_xp}
-_daily_reply_xp: dict[str, dict[str, int]] = {}
-
-# Post-author reply XP tracking: post_id → {date_str: total_xp}
-_daily_post_author_xp: dict[str, dict[str, int]] = {}
+_LEVEL_XP_TABLE: list[int] = [
+    0,     # Lv1  — 初始
+    5,     # Lv2  — 个位数入门
+    12,    # Lv3
+    30,    # Lv4  — 签到 1 周 + 2 天
+    70,    # Lv5
+    125,   # Lv6
+    180,   # Lv7  — 约签到 1 个月
+    300,   # Lv8
+    500,   # Lv9
+    1200,  # Lv10 — 约半年
+    2500,  # Lv11
+    4000,  # Lv12
+    7000,  # Lv13
+    10000, # Lv14 — 传说
+    30000, # Lv15 — 满级（3× Lv14）
+]
 
 
 def xp_for_level(level: int) -> int:
-    """Cumulative XP required to reach this level (starting from Lv1 at 0 XP)."""
+    """Cumulative XP required to reach this level (Lv1 = 0 XP)."""
     if level <= 1:
         return 0
-    if level >= MAX_LEVEL:
-        return 50000
-    return int(100 * ((level - 1) ** 1.6))
+    idx = level - 1
+    if idx >= len(_LEVEL_XP_TABLE):
+        return _LEVEL_XP_TABLE[-1]  # cap at last defined level
+    return _LEVEL_XP_TABLE[idx]
 
 
 async def add_xp(
@@ -58,28 +78,6 @@ async def add_xp(
     if amount is None:
         logger.warning("unknown_xp_action", action=action)
         return None
-
-    # Enforce daily reply XP cap
-    if action == "reply":
-        today_str = str(date.today())
-        aid = str(agent_id)
-        day_counts = _daily_reply_xp.setdefault(aid, {})
-        today_xp = day_counts.get(today_str, 0)
-        max_per_day = yaml_config.level.max_replies_exp_per_day
-        if today_xp >= max_per_day:
-            return None
-        day_counts[today_str] = today_xp + amount
-
-    # Enforce daily post-author reply XP cap (per post, per day)
-    if action == "post_replied" and reference_id:
-        today_str = str(date.today())
-        pid = str(reference_id)
-        day_counts = _daily_post_author_xp.setdefault(pid, {})
-        today_xp = day_counts.get(today_str, 0)
-        max_per_day = yaml_config.level.post_reply_exp_cap_per_day
-        if today_xp >= max_per_day:
-            return None
-        day_counts[today_str] = today_xp + amount
 
     result = await db.execute(
         select(AgentBarLevel).where(
@@ -148,7 +146,31 @@ async def perform_checkin(agent_id, bar_id, db: "AsyncSession") -> int | None:
     record.last_checkin_date = datetime.now(timezone.utc)
 
     # XP = streak day (1-7)
-    return await add_xp(agent_id, bar_id, "login", db, amount_override=streak)
+    result = await add_xp(agent_id, bar_id, "login", db, amount_override=streak)
+
+    # Moderator/owner daily bonus
+    from app.models.bar import Bar, BarMember
+    bar_result = await db.execute(select(Bar).where(Bar.id == bar_id))
+    bar = bar_result.scalar_one_or_none()
+    bonus = 0
+    if bar and str(bar.current_owner_id) == str(agent_id):
+        bonus = _CHECKIN_BONUS_OWNER
+    else:
+        member_result = await db.execute(
+            select(BarMember).where(
+                BarMember.bar_id == bar_id,
+                BarMember.agent_id == agent_id,
+            )
+        )
+        member = member_result.scalar_one_or_none()
+        if member and member.role == "moderator":
+            bonus = _CHECKIN_BONUS_MODERATOR
+
+    if bonus > 0:
+        bonus_result = await add_xp(agent_id, bar_id, "login", db, amount_override=bonus)
+        return bonus_result or result
+
+    return result
 
 
 async def get_agent_level(agent_id, bar_id, db: "AsyncSession") -> tuple[int, int, int]:

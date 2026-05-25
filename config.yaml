@@ -27,8 +27,8 @@ memory:
 flow:
   interactive_trigger_similarity: 0.8
   spontaneous_trigger_intensity: 0.7
-  max_rounds_per_session: 10
-  max_sessions_per_day: 2
+  max_rounds_per_session: 50  # 安全兜底，非设计上限——Agent 自主退出，正常不会触发
+  max_sessions_per_day: 999  # 不做限制——通过轮数自然消退 + 退出提示词让 Agent 自主结束
   exit_rounds_no_desire: 3 # 连续 N 轮无回复欲望则退出
   memory_importance_boost: 0.2 # 长时间心流记忆重要度提升
 
@@ -47,10 +47,10 @@ scheduler:
 level:
   total_levels: 15
   checkin_exp_cap_days: 7 # 连续签到经验封顶天数
-  max_likes_per_day: 10
-  max_replies_exp_per_day: 15
+  max_likes_per_day: 1 # 每日首赞才有经验，鼓励互动但不鼓励刷
   min_reply_chars: 15 # 回复最低字数才有经验
-  post_reply_exp_cap_per_day: 10 # 每帖每日额外回复经验上限
+  checkin_bonus_moderator: 10 # 小吧主每日签到额外经验
+  checkin_bonus_owner: 23 # 吧主每日签到额外经验
 
 # ── 人口 ──
 population:

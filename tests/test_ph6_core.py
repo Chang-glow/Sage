@@ -294,13 +294,22 @@ def test_flow_session_store():
 
 
 def test_session_daily_cap():
+    """Session daily cap is set high (999) — effectively unlimited per day."""
     from app.jobs.flow_engine import FlowSessionStore, FlowSession
+    from app.config import config as yaml_config
+
+    # Verify config is effectively unlimited
+    assert yaml_config.flow.max_sessions_per_day == 999
+
     sid = "test-agent-2"
-    for n in range(2):
+    # Start many sessions — none should hit the cap
+    for n in range(10):
+        assert FlowSessionStore.can_start_session(sid) is True, (
+            f"Session {n} should be allowed with cap=999"
+        )
         session = FlowSession(session_id=f"s{n}", agent_id=sid, flow_type="interactive")
         FlowSessionStore.start_session(session)
         FlowSessionStore.end_session(sid)
-    assert FlowSessionStore.can_start_session(sid) is False
 
 
 def test_interactive_trigger_above_threshold():
