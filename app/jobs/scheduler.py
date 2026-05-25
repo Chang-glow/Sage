@@ -409,6 +409,43 @@ daily_task_registry.register(
     minute=0,
 )
 
+# ── Phase 14: election deadlines ──
+async def _check_election_deadlines_task(db, llm_caller):
+    """Resolve all active elections whose voting period has ended."""
+    from datetime import datetime, timezone
+    from app.models.bar import Election
+    from app.engine.election_engine import resolve_election
+
+    now = datetime.now(timezone.utc)
+    result = await db.execute(
+        select(Election).where(
+            Election.status == "active",
+            Election.voting_ends_at <= now,
+        )
+    )
+    expired = result.scalars().all()
+
+    for election in expired:
+        from sqlalchemy import select as _select
+        from app.models.bar import Bar
+        bar_result = await db.execute(_select(Bar).where(Bar.id == election.bar_id))
+        bar = bar_result.scalars().first()
+        if bar is None:
+            continue
+        try:
+            outcome = await resolve_election(election, bar, db)
+            logger.info("election_resolved", election_id=str(election.id),
+                        bar_name=bar.name, outcome=outcome)
+        except Exception:
+            logger.exception("election_resolve_failed", election_id=str(election.id))
+
+daily_task_registry.register(
+    "check_election_deadlines",
+    _check_election_deadlines_task,
+    hour=int(yaml_config.bar_management.election_deadline_check_hour),
+    minute=0,
+)
+
 
 async def run_scheduler_loop(
     session_factory: async_sessionmaker,

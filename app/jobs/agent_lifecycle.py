@@ -1585,6 +1585,64 @@ async def _bar_mod_browse_hook(agent, post, decision, reply_result, db, llm_call
             logger.exception("mod_action_failed", agent_id=agent_id, bar_id=bar_id_str)
 
 
+# ─── Phase 14 hook: impeachment check ───
+
+_impeachment_check_cooldowns: dict[str, datetime] = {}  # bar_id → last check
+
+
+async def _impeachment_check_hook(agent, post, decision, reply_result, db, llm_caller):
+    """Check if a post calls for impeachment of a bar owner."""
+    from app.engine.feature_flags import plugin_registry
+    if not plugin_registry.is_enabled("bar_management"):
+        return
+
+    post_bar_id = getattr(post, "bar_id", None)
+    if post_bar_id is None:
+        return
+
+    bar_id_str = str(post_bar_id)
+
+    # Cooldown per bar
+    last = _impeachment_check_cooldowns.get(bar_id_str)
+    if last is not None:
+        from datetime import timedelta
+        if datetime.now(timezone.utc) - last < timedelta(hours=6):
+            return
+
+    # Check if post contains impeachment keywords
+    content = getattr(post, "title", "") + " " + getattr(post, "content", "")
+    impeachment_keywords = ["弹劾", "罢免", "吧主下台", "换吧主"]
+    if not any(kw in content for kw in impeachment_keywords):
+        return
+
+    _impeachment_check_cooldowns[bar_id_str] = datetime.now(timezone.utc)
+
+    # Fetch bar and owner info
+    from sqlalchemy import select as _select
+    from app.models.bar import Bar
+    bar_result = await db.execute(_select(Bar).where(Bar.id == post_bar_id))
+    bar = bar_result.scalars().first()
+    if bar is None or bar.current_owner_id is None:
+        return
+
+    # Count supporters on the post
+    from app.engine.bar_manager_engine import count_application_supporters
+    supporters = await count_application_supporters(post, db)
+
+    from app.config import config as yaml_config
+    min_supporters = int(yaml_config.bar_management.impeachment_supporters_min)
+
+    if supporters["supporter_count"] >= min_supporters:
+        from app.engine.election_engine import create_impeachment
+        try:
+            election = await create_impeachment(bar, agent, post.author, post, db)
+            logger.info("impeachment_created", bar_id=bar_id_str,
+                        initiator=str(agent.id),
+                        supporters=supporters["supporter_count"])
+        except Exception:
+            logger.exception("impeachment_create_failed", bar_id=bar_id_str)
+
+
 # Register hooks at module level — runs once on import
 browse_hook_registry.register("like", _like_hook, priority=50)
 browse_hook_registry.register("bookmark", _bookmark_hook, priority=60)
@@ -1597,3 +1655,4 @@ browse_hook_registry.register("conflict_detect", _conflict_detect_hook, priority
 browse_hook_registry.register("dm", _dm_hook, priority=100)
 browse_hook_registry.register("bar_application_check", _bar_application_check_hook, priority=35)
 browse_hook_registry.register("bar_mod_action", _bar_mod_browse_hook, priority=30)
+browse_hook_registry.register("impeachment_check", _impeachment_check_hook, priority=28)
