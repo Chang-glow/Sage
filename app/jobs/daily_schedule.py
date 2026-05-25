@@ -51,6 +51,9 @@ def _pick_template_id(agent: Agent) -> str:
             return "student_boarding"
         return "student_day"
 
+    if occupation == "待业":
+        return "unemployed"
+
     if occupation in ("初入职场", "普工", "文员", "销售", "会计", "医护人员", "外卖员", "快递员", "网约车司机"):
         agent_id = str(agent.id)
         if random.Random(agent_id).random() < 0.25:

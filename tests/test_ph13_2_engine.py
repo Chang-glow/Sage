@@ -200,6 +200,27 @@ class TestGaokaoOutcome(unittest.TestCase):
             self.assertEqual(result["outcome"], "fail")
             self.assertEqual(agent.occupation, "初入职场")
 
+    def test_gaokao_yizhong_boost(self):
+        """平陵一中 gets extra +0.10 local_college boost beyond normal 省重点."""
+        from app.engine.world_dynamic import check_gaokao_outcome
+
+        institutions = [
+            {"name": "平陵一中", "type": "省重点高中", "weight": 5},
+            {"name": "平陵文理学院", "type": "本科", "weight": 15, "district": "RES-003"},
+            {"name": "平陵职业技术学院", "type": "专科", "weight": 12, "district": "RES-003"},
+        ]
+        # 一中 boost: local_college_w = 0.25+0.15+0.10=0.50
+        # After normalization: 0.50/1.20 ≈ 0.417. r=0.40 hits local_college.
+        with self._patch_institutions(return_value=institutions), \
+             patch("app.engine.world_dynamic.random.random", return_value=0.40):
+            agent = _make_agent(
+                age=18, occupation="学生", school_or_company="平陵一中",
+                personality_vector={"truthseeker": 0.05},
+            )
+            result = check_gaokao_outcome(agent, date(2026, 6, 10))
+            self.assertIsNotNone(result)
+            self.assertEqual(result["outcome"], "local_college")
+
 
 class TestTransferEvent(unittest.TestCase):
 
@@ -244,6 +265,35 @@ class TestTransferEvent(unittest.TestCase):
         rng = _random.Random(42)
         result = check_transfer_event(agent, rng)
         self.assertIsNone(result)  # normal probability returns None
+
+    def test_transfer_negative_history_doubles_probability(self):
+        """Negative school events in life_history double the transfer probability."""
+        from app.engine.world_dynamic import check_transfer_event
+        import random as _random
+
+        agent = _make_agent(
+            age=15, occupation="学生", school_or_company="平陵一中",
+            life_history=[
+                {"age": 14, "event": "在校被霸凌，情绪低落", "category": "教育"},
+                {"age": 15, "event": "与同学关系恶化", "category": "教育"},
+            ],
+        )
+        rng = _random.Random(42)
+        # With doubled prob (0.04*2/365 ≈ 0.00022), normal random still returns None
+        # but we verify the function doesn't crash and handles the life_history scan
+        result = check_transfer_event(agent, rng)
+        self.assertIsNone(result)  # probability still low
+
+        # Force rng.random to return 0.0001 so doubled prob triggers
+        with patch.object(rng, "random", return_value=0.0001):
+            institutions = [
+                {"name": "平陵一中", "type": "省重点高中", "weight": 5, "boarding": "day_only", "district": "RES-003"},
+                {"name": "平陵二中", "type": "普通高中", "weight": 10, "boarding": "day_only", "district": "RES-002"},
+            ]
+            with patch("app.engine.world_dynamic.get_institutions_by_age", return_value=institutions):
+                result = check_transfer_event(agent, rng)
+                # Should trigger since 0.0001 < 0.00022
+                self.assertIsNotNone(result)
 
 
 class TestCareerMobility(unittest.TestCase):
@@ -394,6 +444,17 @@ class TestLifeEvents(unittest.TestCase):
         agent = _make_agent(birthday=date(2000, 6, 15))
         events = get_pending_life_events_for_context(agent, date(2026, 7, 15))
         self.assertFalse(any("生日" in e for e in events))
+
+    def test_get_pending_life_events_includes_entertainment(self):
+        """Entertainment venue or restaurant suggestion appears in context."""
+        from app.engine.world_dynamic import get_pending_life_events_for_context
+        agent = _make_agent(age=25, occupation="普工", school_or_company="平陵电子厂")
+        events = get_pending_life_events_for_context(agent, date(2026, 6, 15))
+        # Should include an entertainment suggestion
+        self.assertTrue(
+            any("下班后" in e for e in events),
+            f"Expected entertainment suggestion in: {events}",
+        )
 
 
 if __name__ == "__main__":

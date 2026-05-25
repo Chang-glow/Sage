@@ -144,6 +144,10 @@ def check_gaokao_outcome(agent: Agent, today: date) -> dict | None:
         fail_w -= 0.10
         away_w += 0.05
 
+    # Pingling No.1 High School — elite within 省重点, extra boost
+    if agent.school_or_company == "平陵一中":
+        local_college_w += 0.10
+
     # Truthseeker boost (high truthseeker → better exam results)
     pv = agent.personality_vector or {}
     truthseeker = float(pv.get("truthseeker", 0))
@@ -229,6 +233,17 @@ def check_transfer_event(agent: Agent, rng: random.Random) -> dict | None:
         return None
 
     annual_prob = float(getattr(yaml_config.world_dynamic, "education_transfer_probability", 0.04))
+
+    # Negative school experiences double the transfer probability
+    if agent.life_history:
+        negative_keywords = ["被霸凌", "关系恶化", "不及格", "被孤立", "被欺负", "打架", "处分"]
+        neg_count = sum(
+            1 for e in agent.life_history
+            if any(kw in str(e.get("event", "")) for kw in negative_keywords)
+        )
+        if neg_count > 0:
+            annual_prob *= 2.0
+
     daily_prob = annual_prob / 365.0
     if rng.random() >= daily_prob:
         return None
@@ -287,13 +302,21 @@ async def check_incoming_transfer(db, rng: random.Random, session_factory, llm_c
                 "schedule": {},
             },
         )
-        # Post-creation: set world dynamic fields
+        # Post-creation: set world dynamic fields + assign school/location
         agent.hometown = rng.choice(["省城", "隔壁市", "外省某市"])
         agent.is_away = False  # they're coming TO Pingling
+
+        from app.world.location_assigner import assign_location
+        loc = assign_location(agent.age, "学生")
+        agent.school_or_company = loc["school_or_company"]
+        agent.district = loc["district"]
+        agent.boarding = loc.get("boarding", False)
+
         db.add(agent)
         await db.commit()
         logger.info("incoming_transfer_created", agent_id=str(agent.id),
-                    age=agent.age, hometown=agent.hometown)
+                    age=agent.age, hometown=agent.hometown,
+                    school=agent.school_or_company)
         return agent
     except Exception:
         logger.warning("incoming_transfer_failed")
@@ -329,12 +352,12 @@ async def check_incoming_exam_student(db, rng: random.Random, session_factory, l
         agent.hometown = rng.choice(["省城", "隔壁市某县", "外省"])
         agent.is_away = False
         agent.occupation = "学生"
-        # Assign a Pingling college
-        colleges = [i for i in get_institutions_by_age(18) if i["type"] in ("本科", "专科")]
-        if colleges:
-            chosen = rng.choice(colleges)
-            agent.school_or_company = chosen["name"]
-            agent.district = chosen.get("district", "RES-003")
+        # Assign a Pingling college via location assigner (handles district + boarding)
+        from app.world.location_assigner import assign_location
+        loc = assign_location(agent.age, "学生")
+        agent.school_or_company = loc["school_or_company"]
+        agent.district = loc["district"]
+        agent.boarding = loc.get("boarding", False)
         db.add(agent)
         await db.commit()
         logger.info("incoming_exam_student_created", agent_id=str(agent.id),
@@ -517,6 +540,51 @@ def check_job_search_for_unemployed(agent: Agent, rng: random.Random) -> dict | 
     return result
 
 
+def check_return_to_hometown(agent: Agent, rng: random.Random) -> dict | None:
+    """Check if an away agent (went to college elsewhere) returns to Pingling.
+
+    Conditions: is_away=True, age >= 22, occupation is student/初入职场.
+    Annual probability ~15%, triggers within 1-3 years after graduation age.
+    """
+    if not agent.is_away:
+        return None
+    if agent.age < 22:
+        return None
+    if agent.occupation not in ("学生", "初入职场"):
+        return None
+
+    annual_prob = float(getattr(yaml_config.world_dynamic, "career_return_to_hometown_probability", 0.15))
+    daily_prob = annual_prob / 365.0
+    if rng.random() >= daily_prob:
+        return None
+
+    # Return to Pingling: clear away status, assign employment
+    agent.is_away = False
+    agent.occupation = "初入职场" if agent.occupation == "学生" else agent.occupation
+    agent.school_or_company = None  # Will be set by check_initial_employment on next pass
+
+    # Try to assign a company immediately
+    from app.engine.agent_factory import _OCCUPATION_POOL
+    agent.occupation = rng.choice(_OCCUPATION_POOL)
+    companies = get_companies_by_occupation(agent.occupation)
+    if companies:
+        chosen = rng.choice(companies)
+        agent.school_or_company = chosen["name"]
+        agent.district = chosen.get("district", agent.district)
+    else:
+        agent.school_or_company = "平陵某单位"
+
+    from app.engine.agent_factory import _lookup_income_edu
+    agent.income_level, agent.education = _lookup_income_edu(agent.age, agent.occupation)
+
+    result = {"type": "return_to_hometown", "occupation": agent.occupation,
+              "company": agent.school_or_company}
+    inject_life_event(agent, create_life_event(
+        agent.age, "人生", f"大学毕业后回到平陵，入职{agent.school_or_company}成为{agent.occupation}", 0.9,
+    ))
+    return result
+
+
 # ═══════════════════════════════════════════════════
 # City development
 # ═══════════════════════════════════════════════════
@@ -628,12 +696,46 @@ def get_pending_life_events_for_context(agent: Agent, today: date) -> list[str]:
     if _is_unemployed(agent):
         events.append("你目前待业中，正在寻找新的工作机会")
 
+    # Entertainment venue suggestion (random pick from venues + restaurants)
+    from app.world.city_data import get_restaurants, get_venues
+    venues = get_venues()
+    restaurants = get_restaurants()
+    candidates: list[dict] = []
+    if venues:
+        candidates.extend(venues)
+    if restaurants:
+        candidates.extend(restaurants)
+    if candidates:
+        import random as _random
+        chosen = _random.choice(candidates)
+        name = chosen.get("name", "")
+        location = chosen.get("location", "")
+        if location:
+            events.append(f"今天下班后可以到{location}旁的{name}坐坐")
+        else:
+            events.append(f"今天下班后可以去{name}逛逛")
+
     return events
 
 
 # ═══════════════════════════════════════════════════
 # Daily task functions (registered in scheduler)
 # ═══════════════════════════════════════════════════
+
+async def _regenerate_schedule(agent: Agent, today: date, db, llm_caller: Callable) -> None:
+    """Force-regenerate daily schedule after a life event (zhongkao/gaokao/unemployment/etc).
+
+    Called from task functions after engine functions that change occupation/school.
+    """
+    from app.jobs.daily_schedule import generate_daily_schedule
+
+    try:
+        await generate_daily_schedule(agent, today, db, llm_caller)
+        logger.info("schedule_regenerated", agent_id=str(agent.id),
+                    occupation=agent.occupation, school=agent.school_or_company)
+    except Exception:
+        logger.warning("schedule_regenerate_failed", agent_id=str(agent.id))
+
 
 async def world_dynamic_education_task(db, llm_caller: Callable) -> None:
     """Daily task: age progression + education mobility checks."""
@@ -663,11 +765,13 @@ async def world_dynamic_education_task(db, llm_caller: Callable) -> None:
         if zhk:
             zhongkao += 1
             changed = True
+            await _regenerate_schedule(agent, today, db, llm_caller)
 
         gk = check_gaokao_outcome(agent, today)
         if gk:
             gaokao += 1
             changed = True
+            await _regenerate_schedule(agent, today, db, llm_caller)
 
         tf = check_transfer_event(agent, rng)
         if tf:
@@ -705,13 +809,21 @@ async def world_dynamic_career_task(db, llm_caller: Callable) -> None:
     agents = list(result.scalars().all())
 
     rng = random.Random()
+    today = date.today()
     employed = 0
     job_changes = 0
     unemployed = 0
     job_searches = 0
+    returned = 0
 
     for agent in agents:
         changed = False
+
+        ret = check_return_to_hometown(agent, rng)
+        if ret:
+            returned += 1
+            changed = True
+            await _regenerate_schedule(agent, today, db, llm_caller)
 
         emp = check_initial_employment(agent, rng)
         if emp:
@@ -727,19 +839,23 @@ async def world_dynamic_career_task(db, llm_caller: Callable) -> None:
         if ue:
             unemployed += 1
             changed = True
+            await _regenerate_schedule(agent, today, db, llm_caller)
 
         js = check_job_search_for_unemployed(agent, rng)
         if js:
             job_searches += 1
             changed = True
+            if js.get("found"):
+                await _regenerate_schedule(agent, today, db, llm_caller)
 
         if changed:
             db.add(agent)
 
-    if employed or job_changes or unemployed or job_searches:
+    if employed or job_changes or unemployed or job_searches or returned:
         await db.commit()
         logger.info("career_mobility_done", employed=employed, job_changes=job_changes,
-                    unemployed=unemployed, job_searches=job_searches, agents=len(agents))
+                    unemployed=unemployed, job_searches=job_searches,
+                    returned=returned, agents=len(agents))
 
 
 async def world_dynamic_city_task(db, llm_caller: Callable) -> None:
