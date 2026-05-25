@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import random
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Callable
 
 import structlog
@@ -449,9 +449,12 @@ daily_task_registry.register(
 # ── Phase 14: owner inactivity check ──
 async def _check_owner_inactivity_task(db, llm_caller):
     """Check all bars for owner inactivity and trigger lost/election."""
-    from app.models.bar import Bar
+    from app.models.bar import Bar, Election as ElectionModel
+    from app.models.post import Post
     from app.engine.bar_manager_engine import check_owner_inactivity, set_owner_lost
     from app.engine.election_engine import create_election
+
+    grace_days = int(yaml_config.bar_management.owner_grace_period_days)
 
     result = await db.execute(
         select(Bar).where(Bar.current_owner_id.isnot(None))
@@ -461,9 +464,37 @@ async def _check_owner_inactivity_task(db, llm_caller):
     for bar in bars:
         try:
             status = await check_owner_inactivity(bar, db)
-            if status == "lost":
-                await set_owner_lost(bar, db)
-                logger.info("owner_lost", bar_name=bar.name, bar_id=str(bar.id))
+            if status != "lost":
+                continue
+
+            # Skip if there's already an active election for this bar
+            active_election_result = await db.execute(
+                select(ElectionModel).where(
+                    ElectionModel.bar_id == bar.id,
+                    ElectionModel.status == "active",
+                )
+            )
+            if active_election_result.scalars().first() is not None:
+                continue
+
+            # Check if grace period has elapsed since first lost announcement
+            lost_post_result = await db.execute(
+                select(Post).where(
+                    Post.bar_id == bar.id,
+                    Post.title.contains("已失联"),
+                ).order_by(Post.created_at.desc()).limit(1)
+            )
+            lost_post = lost_post_result.scalars().first()
+
+            if lost_post is not None and lost_post.created_at is not None:
+                grace_deadline = lost_post.created_at + timedelta(days=grace_days)
+                if datetime.now(timezone.utc) >= grace_deadline:
+                    await create_election(bar, db)
+                    logger.info("owner_grace_elapsed_election", bar_name=bar.name, bar_id=str(bar.id))
+                    continue
+
+            await set_owner_lost(bar, db)
+            logger.info("owner_lost", bar_name=bar.name, bar_id=str(bar.id))
         except Exception:
             logger.exception("owner_inactivity_check_failed", bar_id=str(bar.id))
 

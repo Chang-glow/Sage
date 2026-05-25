@@ -116,6 +116,189 @@ class TestSetOwnerLost(unittest.TestCase):
         self.assertEqual(len(added), 1)
 
 
+class TestOwnerInactivityGracePeriod(unittest.TestCase):
+    """Tests for grace period → auto-election in _check_owner_inactivity_task."""
+
+    def setUp(self):
+        from unittest.mock import patch
+        self.patch_check = patch(
+            "app.engine.bar_manager_engine.check_owner_inactivity"
+        )
+        self.patch_set_lost = patch(
+            "app.engine.bar_manager_engine.set_owner_lost"
+        )
+        self.patch_create_election = patch(
+            "app.engine.election_engine.create_election"
+        )
+        self.mock_check = self.patch_check.start()
+        self.mock_set_lost = self.patch_set_lost.start()
+        self.mock_create_election = self.patch_create_election.start()
+
+    def tearDown(self):
+        self.patch_check.stop()
+        self.patch_set_lost.stop()
+        self.patch_create_election.stop()
+
+    def test_grace_not_elapsed_posts_lost(self):
+        """Grace period not elapsed → set_owner_lost, not create_election."""
+        from app.jobs.scheduler import _check_owner_inactivity_task
+
+        self.mock_check.return_value = "lost"
+
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock()
+
+        mock_bar = MagicMock()
+        mock_bar.id = uuid.uuid4()
+        mock_bar.name = "测试吧"
+        mock_bar.current_owner_id = uuid.uuid4()
+
+        # Bar query returns one bar
+        mock_bar_result = MagicMock()
+        mock_bar_result.scalars.return_value.all.return_value = [mock_bar]
+
+        # Lost post query: exists and created recently (grace NOT elapsed)
+        recent_post = MagicMock()
+        recent_post.created_at = datetime.now(timezone.utc) - timedelta(days=1)
+
+        mock_post_result = MagicMock()
+        mock_post_result.scalars.return_value.first.return_value = recent_post
+
+        # Election query: no active election
+        mock_election_result = MagicMock()
+        mock_election_result.scalars.return_value.first.return_value = None
+
+        mock_db.execute.side_effect = [
+            mock_bar_result,
+            mock_election_result,
+            mock_post_result,
+        ]
+
+        async def _run():
+            await _check_owner_inactivity_task(mock_db, None)
+
+        import asyncio
+        asyncio.run(_run())
+        self.mock_set_lost.assert_called_once()
+        self.mock_create_election.assert_not_called()
+
+    def test_grace_elapsed_triggers_election(self):
+        """Grace period elapsed → create_election, not set_owner_lost."""
+        from app.jobs.scheduler import _check_owner_inactivity_task
+
+        self.mock_check.return_value = "lost"
+
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock()
+
+        mock_bar = MagicMock()
+        mock_bar.id = uuid.uuid4()
+        mock_bar.name = "测试吧"
+        mock_bar.current_owner_id = uuid.uuid4()
+
+        mock_bar_result = MagicMock()
+        mock_bar_result.scalars.return_value.all.return_value = [mock_bar]
+
+        # Lost post: created 5 days ago (grace=3, so elapsed)
+        old_post = MagicMock()
+        old_post.created_at = datetime.now(timezone.utc) - timedelta(days=5)
+
+        mock_post_result = MagicMock()
+        mock_post_result.scalars.return_value.first.return_value = old_post
+
+        # No active election
+        mock_election_result = MagicMock()
+        mock_election_result.scalars.return_value.first.return_value = None
+
+        mock_db.execute.side_effect = [
+            mock_bar_result,
+            mock_election_result,
+            mock_post_result,
+        ]
+
+        async def _run():
+            await _check_owner_inactivity_task(mock_db, None)
+
+        import asyncio
+        asyncio.run(_run())
+        self.mock_set_lost.assert_not_called()
+        self.mock_create_election.assert_called_once()
+
+    def test_active_election_skips(self):
+        """Bar already has active election → skip both lost and election."""
+        from app.jobs.scheduler import _check_owner_inactivity_task
+
+        self.mock_check.return_value = "lost"
+
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock()
+
+        mock_bar = MagicMock()
+        mock_bar.id = uuid.uuid4()
+        mock_bar.name = "测试吧"
+        mock_bar.current_owner_id = uuid.uuid4()
+
+        mock_bar_result = MagicMock()
+        mock_bar_result.scalars.return_value.all.return_value = [mock_bar]
+
+        # Active election exists
+        active_election = MagicMock()
+        mock_election_result = MagicMock()
+        mock_election_result.scalars.return_value.first.return_value = active_election
+
+        mock_db.execute.side_effect = [
+            mock_bar_result,
+            mock_election_result,
+        ]
+
+        async def _run():
+            await _check_owner_inactivity_task(mock_db, None)
+
+        import asyncio
+        asyncio.run(_run())
+        self.mock_set_lost.assert_not_called()
+        self.mock_create_election.assert_not_called()
+
+    def test_no_lost_post_yet_triggers_lost(self):
+        """No prior lost post → create lost announcement (first detection)."""
+        from app.jobs.scheduler import _check_owner_inactivity_task
+
+        self.mock_check.return_value = "lost"
+
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock()
+
+        mock_bar = MagicMock()
+        mock_bar.id = uuid.uuid4()
+        mock_bar.name = "测试吧"
+        mock_bar.current_owner_id = uuid.uuid4()
+
+        mock_bar_result = MagicMock()
+        mock_bar_result.scalars.return_value.all.return_value = [mock_bar]
+
+        # No active election
+        mock_election_result = MagicMock()
+        mock_election_result.scalars.return_value.first.return_value = None
+
+        # No lost post
+        mock_post_result = MagicMock()
+        mock_post_result.scalars.return_value.first.return_value = None
+
+        mock_db.execute.side_effect = [
+            mock_bar_result,
+            mock_election_result,
+            mock_post_result,
+        ]
+
+        async def _run():
+            await _check_owner_inactivity_task(mock_db, None)
+
+        import asyncio
+        asyncio.run(_run())
+        self.mock_set_lost.assert_called_once()
+        self.mock_create_election.assert_not_called()
+
+
 class TestSageProxyManage(unittest.TestCase):
     """Tests for sage_proxy_manage_bar."""
 
