@@ -274,3 +274,133 @@ async def remove_sub_mod(
     return await record_mod_action(
         owner.id, bar.id, "remove_sub_mod", "member", uuid.UUID(target_agent_id), None, db
     )
+
+
+# ─── Appeal system ───
+
+
+async def submit_appeal(
+    agent: Agent, mod_log_id: uuid.UUID, appeal_reason: str, db: AsyncSession
+) -> BarModLog | None:
+    """Submit an appeal for a mod action within the appeal window.
+
+    Validates: within appeal_window_days, not already appealed.
+    Auto-generates a public appeal post in the relevant bar.
+    """
+    from app.config import config as yaml_config
+
+    try:
+        window_days = int(yaml_config.bar_management.appeal_window_days)
+    except AttributeError:
+        window_days = 7
+
+    result = await db.execute(
+        select(BarModLog).where(BarModLog.id == mod_log_id)
+    )
+    mod_log = result.scalars().first()
+    if mod_log is None:
+        return None
+
+    # Check appeal window
+    deadline = mod_log.created_at + timedelta(days=window_days)
+    if datetime.now(timezone.utc) > deadline:
+        return None
+
+    # Already appealed?
+    if mod_log.is_appealed:
+        return None
+
+    mod_log.is_appealed = True
+    mod_log.appeal_reason = appeal_reason
+    mod_log.appeal_status = "pending"
+
+    # Auto-generate appeal post
+    try:
+        await generate_appeal_post(mod_log, agent, appeal_reason, db)
+    except Exception:
+        logger.exception("appeal_post_generation_failed", mod_log_id=str(mod_log_id))
+
+    return mod_log
+
+
+async def resolve_appeal(
+    moderator: Agent, mod_log_id: uuid.UUID, resolution: str, db: AsyncSession
+) -> BarModLog | None:
+    """Resolve an appeal. resolution must be 'upheld' or 'rejected'.
+
+    If upheld: restore content (unhide post, unban member, etc.).
+    """
+    result = await db.execute(
+        select(BarModLog).where(BarModLog.id == mod_log_id)
+    )
+    mod_log = result.scalars().first()
+    if mod_log is None:
+        return None
+
+    if mod_log.appeal_status != "pending":
+        return None
+
+    mod_log.appeal_status = resolution
+
+    # If upheld, restore the content
+    if resolution == "upheld":
+        await _restore_from_appeal(mod_log, db)
+
+    return mod_log
+
+
+async def _restore_from_appeal(mod_log: BarModLog, db: AsyncSession) -> None:
+    """Restore content based on the original mod action."""
+    if mod_log.action in ("hide", "delete") and mod_log.target_type == "post":
+        if mod_log.target_id:
+            result = await db.execute(
+                select(Post).where(Post.id == mod_log.target_id)
+            )
+            target = result.scalars().first()
+            if target:
+                target.is_hidden = False
+    elif mod_log.action == "ban" and mod_log.target_type == "member":
+        if mod_log.target_id:
+            result = await db.execute(
+                select(BarMember).where(
+                    BarMember.agent_id == mod_log.target_id,
+                    BarMember.bar_id == mod_log.bar_id,
+                )
+            )
+            member = result.scalars().first()
+            if member:
+                member.is_muted = False
+                member.muted_until = None
+
+
+async def generate_appeal_post(
+    mod_log: BarModLog, appellant: Agent, appeal_reason: str, db: AsyncSession
+) -> Post:
+    """Auto-generate a public appeal announcement post in the bar."""
+    # Look up moderator info for the post
+    mod_result = await db.execute(
+        select(Agent).where(Agent.id == mod_log.moderator_id)
+    )
+    moderator = mod_result.scalars().first()
+    mod_name = moderator.nickname if moderator else "未知吧务"
+
+    title = f"【申诉】对{mod_log.action}操作的申诉"
+    content = (
+        f"申诉者：@{appellant.nickname}\n"
+        f"被申诉操作：{mod_log.action}\n"
+        f"执行吧务：@{mod_name}\n"
+        f"原操作理由：{mod_log.reason or '未提供'}\n"
+        f"申诉理由：{appeal_reason}\n\n"
+        f"申诉状态：待处理\n"
+        f"---\n"
+        f"此帖为系统自动生成的申诉公示帖，对吧成员公开。吧务需在下回复处理结果。"
+    )
+
+    post = Post(
+        bar_id=mod_log.bar_id,
+        author_id=appellant.id,
+        title=title,
+        content=content,
+    )
+    db.add(post)
+    return post
