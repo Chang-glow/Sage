@@ -107,10 +107,12 @@ app.add_middleware(
 
 from app.api.agents import router as agents_router
 from app.api.admin import router as admin_router
+from app.api.bars import router as bars_router
 from app.api.features import router as features_router
 
 app.include_router(agents_router, prefix="/api/agents", tags=["agents"])
 app.include_router(admin_router, prefix="/api/admin", tags=["admin"])
+app.include_router(bars_router, prefix="/api", tags=["bars"])
 app.include_router(features_router, prefix="/api", tags=["features"])
 
 
