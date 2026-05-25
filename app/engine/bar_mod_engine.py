@@ -84,8 +84,10 @@ async def record_mod_action(
 
 async def hide_post(
     moderator: Agent, post: Post, bar: Bar, reason: str, db: AsyncSession
-) -> BarModLog:
-    """Hide a post. Returns the mod log entry."""
+) -> BarModLog | None:
+    """Hide a post. Returns the mod log entry, or None if post is protected."""
+    if post.is_rule_post:
+        return None  # rule/appeal posts cannot be hidden
     post.is_hidden = True
     return await record_mod_action(
         moderator.id, bar.id, "hide", "post", post.id, reason, db
@@ -402,6 +404,7 @@ async def generate_appeal_post(
         author_id=appellant.id,
         title=title,
         content=content,
+        is_rule_post=True,
     )
     db.add(post)
     return post

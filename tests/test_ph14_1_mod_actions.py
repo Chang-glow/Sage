@@ -106,6 +106,7 @@ class TestHidePost(unittest.TestCase):
         moderator.id = uuid.uuid4()
         post = MagicMock()
         post.is_hidden = False
+        post.is_rule_post = False
         bar = MagicMock()
         bar.id = uuid.uuid4()
 
