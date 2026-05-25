@@ -1450,6 +1450,63 @@ async def _conflict_detect_hook(
     conflict_cooldown.set(agent_id, opponent_id)
 
 
+# ─── Phase 14 hook: bar application check ───
+
+_bar_app_cooldowns: dict[str, datetime] = {}  # agent_id → last check time
+
+
+async def _bar_application_check_hook(agent, post, decision, reply_result, db, llm_caller):
+    """Check if a post is a bar creation application and handle it."""
+    from app.engine.feature_flags import plugin_registry
+    if not plugin_registry.is_enabled("bar_management"):
+        return
+
+    from app.config import config as yaml_config
+    from app.engine.bar_manager_engine import (
+        can_create_bar,
+        count_application_supporters,
+        create_bar_from_application,
+        evaluate_bar_application_post,
+    )
+
+    agent_id = str(agent.id)
+
+    # Cooldown check — don't evaluate every post
+    last = _bar_app_cooldowns.get(agent_id)
+    if last is not None:
+        cooldown_minutes = int(yaml_config.bar_management.application_cooldown_minutes)
+        from datetime import timedelta
+        if datetime.now(timezone.utc) - last < timedelta(minutes=cooldown_minutes):
+            return
+
+    _bar_app_cooldowns[agent_id] = datetime.now(timezone.utc)
+
+    # Only evaluate posts without a bar (public square posts)
+    if getattr(post, "bar_id", None) is not None:
+        return
+
+    # Check if agent can create more bars
+    if not await can_create_bar(agent_id, db):
+        return
+
+    # Evaluate if this post is a bar application
+    bar_info = await evaluate_bar_application_post(post, db, llm_caller)
+    if bar_info is None:
+        return
+
+    # Count supporters
+    supporters = await count_application_supporters(post, db)
+    min_supporters = int(yaml_config.bar_management.bar_application_supporters_min)
+
+    if supporters["supporter_count"] >= min_supporters and not supporters["has_serious_opposition"]:
+        try:
+            bar = await create_bar_from_application(post, agent, bar_info, db, llm_caller)
+            logger.info("bar_created", bar_name=bar.name, creator_id=agent_id,
+                        bar_id=str(bar.id), supporters=supporters["supporter_count"])
+        except Exception:
+            logger.exception("bar_creation_failed", agent_id=agent_id, bar_name=bar_info.get("bar_name"))
+
+
 # Register hooks at module level — runs once on import
 browse_hook_registry.register("like", _like_hook, priority=50)
 browse_hook_registry.register("bookmark", _bookmark_hook, priority=60)
@@ -1460,3 +1517,4 @@ browse_hook_registry.register("search", _search_hook, priority=40)
 browse_hook_registry.register("memory_extract", _memory_extraction_hook, priority=90)
 browse_hook_registry.register("conflict_detect", _conflict_detect_hook, priority=95)
 browse_hook_registry.register("dm", _dm_hook, priority=100)
+browse_hook_registry.register("bar_application_check", _bar_application_check_hook, priority=35)

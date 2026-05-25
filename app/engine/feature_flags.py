@@ -127,5 +127,15 @@ def _init_from_config() -> None:
         default_enabled=promises_default,
     )
 
+    # bar_management
+    try:
+        bar_mgmt_default = bool(_cfg.bar_management.enabled)
+    except AttributeError:
+        bar_mgmt_default = True
+    PluginRegistry.register(
+        "bar_management", "自治吧系统 — 建吧、吧规、吧务管理、选举弹劾、封禁申诉", "bar",
+        default_enabled=bar_mgmt_default,
+    )
+
 
 _init_from_config()

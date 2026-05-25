@@ -174,3 +174,22 @@ world_dynamic:
   education_mobility_hour: 2                  # 教育流动性检查时间
   career_mobility_hour: 3                     # 职业流动性检查时间
   city_development_hour: 10                   # 城市发展事件生成时间
+
+# ── 自治吧系统 (v0.14.0) ──
+bar_management:
+  enabled: true
+  bar_application_supporters_min: 5  # 建吧最低支持人数
+  max_bars_per_agent: 3              # 单个 Agent 最多建吧数
+  application_cooldown_minutes: 30   # 建吧申请检测冷却时间
+  mod_action_cooldown_minutes: 60    # 吧务操作最小间隔
+  owner_inactivity_days: 7           # 吧主失联天数
+  owner_grace_period_days: 3         # 失联后宽限天数
+  max_ban_days_owner: 7              # 吧主最大封禁天数
+  max_ban_days_sub_mod: 3            # 小吧主最大封禁天数
+  appeal_window_days: 7              # 申诉有效天数
+  impeachment_voting_days: 2         # 弹劾投票天数
+  election_voting_days: 2            # 竞选投票天数
+  impeachment_supporters_min: 3      # 弹劾最低附议人数
+  impeachment_percentage_threshold: 0.2  # 弹劾成员占比阈值
+  owner_inactivity_check_hour: 3     # 吧主失联检查时间
+  election_deadline_check_hour: 2    # 选举截止检查时间
