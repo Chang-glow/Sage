@@ -446,6 +446,34 @@ daily_task_registry.register(
     minute=0,
 )
 
+# ── Phase 14: owner inactivity check ──
+async def _check_owner_inactivity_task(db, llm_caller):
+    """Check all bars for owner inactivity and trigger lost/election."""
+    from app.models.bar import Bar
+    from app.engine.bar_manager_engine import check_owner_inactivity, set_owner_lost
+    from app.engine.election_engine import create_election
+
+    result = await db.execute(
+        select(Bar).where(Bar.current_owner_id.isnot(None))
+    )
+    bars = result.scalars().all()
+
+    for bar in bars:
+        try:
+            status = await check_owner_inactivity(bar, db)
+            if status == "lost":
+                await set_owner_lost(bar, db)
+                logger.info("owner_lost", bar_name=bar.name, bar_id=str(bar.id))
+        except Exception:
+            logger.exception("owner_inactivity_check_failed", bar_id=str(bar.id))
+
+daily_task_registry.register(
+    "check_owner_inactivity",
+    _check_owner_inactivity_task,
+    hour=int(yaml_config.bar_management.owner_inactivity_check_hour),
+    minute=0,
+)
+
 
 async def run_scheduler_loop(
     session_factory: async_sessionmaker,

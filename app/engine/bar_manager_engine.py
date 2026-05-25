@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.agent import Agent
-from app.models.bar import AgentBarLevel, Bar, BarMember, BarRule
+from app.models.bar import AgentBarLevel, Bar, BarMember, BarModLog, BarRule
 from app.models.post import Post, Reply
 
 logger = logging.getLogger(__name__)
@@ -231,3 +231,74 @@ async def can_create_bar(agent_id: str, db: AsyncSession) -> bool:
     )
     count = result.scalar() or 0
     return count < max_bars
+
+
+# ─── Owner inactivity & Sage proxy ───
+
+
+async def check_owner_inactivity(bar: Bar, db: AsyncSession) -> str:
+    """Check if the bar owner is inactive.
+
+    Returns 'active', 'lost', or 'none' (no owner).
+    """
+    from app.config import config as yaml_config
+
+    if bar.current_owner_id is None:
+        return "none"
+
+    inactivity_days = int(yaml_config.bar_management.owner_inactivity_days)
+
+    owner_result = await db.execute(
+        select(Agent).where(Agent.id == bar.current_owner_id)
+    )
+    owner = owner_result.scalars().first()
+    if owner is None:
+        return "none"
+
+    if owner.last_online is None:
+        return "lost"
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=inactivity_days)
+    if owner.last_online < cutoff:
+        # Check if owner did any mod actions in this period
+        mod_result = await db.execute(
+            select(func.count(BarModLog.id)).where(
+                BarModLog.bar_id == bar.id,
+                BarModLog.moderator_id == bar.current_owner_id,
+                BarModLog.created_at >= cutoff,
+            )
+        )
+        mod_count = mod_result.scalar() or 0
+        if mod_count == 0:
+            return "lost"
+
+    return "active"
+
+
+async def set_owner_lost(bar: Bar, db: AsyncSession) -> Post | None:
+    """Post an announcement that the bar owner is lost."""
+    if bar.current_owner_id is None:
+        return None
+
+    owner_result = await db.execute(
+        select(Agent).where(Agent.id == bar.current_owner_id)
+    )
+    owner = owner_result.scalars().first()
+    owner_name = owner.nickname if owner else "未知"
+
+    post = Post(
+        bar_id=bar.id,
+        author_id=bar.current_owner_id,
+        title=f"【系统公告】吧主 @{owner_name} 已失联",
+        content=(
+            f"吧主 @{owner_name} 已连续 7 天未上线且未执行吧务操作。\n"
+            f"系统给予 3 天宽限期。若期限内吧主仍未出现，将自动启动竞选流程。"
+        ),
+    )
+    db.add(post)
+    return post
+
+
+async def sage_proxy_manage_bar(bar: Bar, db: AsyncSession) -> None:
+    """Mark a bar as Sage-managed (when no owner and no election winner)."""
+    bar.is_sage_managed = True
