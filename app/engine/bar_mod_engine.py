@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.agent import Agent
 from app.models.bar import Bar, BarMember, BarModLog
+from app.models.notification import Notification
 from app.models.post import Post
 
 logger = logging.getLogger(__name__)
@@ -131,6 +132,16 @@ async def essential_post(
     """Mark a post as essential."""
     post.is_essential = True
     post.essential_at = datetime.now(timezone.utc)
+    notif = Notification(
+        recipient_id=post.author_id,
+        sender_id=moderator.id,
+        type="essential",
+        priority="medium",
+        reference_type="post",
+        reference_id=post.id,
+        message=f"你的帖子「{post.title}」被 @{moderator.nickname} 加精",
+    )
+    db.add(notif)
     return await record_mod_action(
         moderator.id, bar.id, "essential", "post", post.id, None, db
     )

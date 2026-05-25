@@ -205,6 +205,45 @@ class TestEssentialPost(unittest.TestCase):
         self.assertTrue(post.is_essential)
         self.assertIsNotNone(post.essential_at)
 
+    def test_essential_post_notifies_author(self):
+        """essential_post creates Notification for the post author."""
+        from app.engine.bar_mod_engine import essential_post
+        from app.models.notification import Notification
+
+        mock_db = AsyncMock()
+        added_objects = []
+        mock_db.add = lambda obj: added_objects.append(obj)
+
+        moderator = MagicMock()
+        moderator.id = uuid.uuid4()
+        moderator.nickname = "测试吧主"
+        post = MagicMock()
+        post.id = uuid.uuid4()
+        post.author_id = uuid.uuid4()
+        post.title = "测试帖子标题"
+        post.is_essential = False
+        bar = MagicMock()
+        bar.id = uuid.uuid4()
+
+        async def _run():
+            return await essential_post(moderator, post, bar, mock_db)
+
+        import asyncio
+        asyncio.run(_run())
+
+        # 检查 post 被加精
+        self.assertTrue(post.is_essential)
+
+        # 检查 Notification 被创建
+        notifs = [o for o in added_objects if isinstance(o, Notification)]
+        self.assertEqual(len(notifs), 1)
+        notif = notifs[0]
+        self.assertEqual(notif.recipient_id, post.author_id)
+        self.assertEqual(notif.sender_id, moderator.id)
+        self.assertEqual(notif.type, "essential")
+        self.assertIn("加精", notif.message)
+        self.assertIn(post.title, notif.message)
+
     def test_unessential_post(self):
         from app.engine.bar_mod_engine import unessential_post
 
