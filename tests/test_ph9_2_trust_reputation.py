@@ -28,6 +28,7 @@ def _make_mock_agent(name="测试Agent"):
     agent.distrust_tags = []
     agent.trust_tags = []
     agent.reputation = 0.0
+    agent.consecutive_fulfillments = 0
     agent.status = "active"
     agent.is_online = False
     return agent
@@ -324,6 +325,117 @@ def test_expired_trust_tag_filtered_out():
 
     ctx = build_agent_context(agent)
     assert len(ctx.get("trust_tags", [])) == 0, "Expired trust_tags should be filtered out"
+
+
+# ── 0.12.11c: Consecutive fulfillment counting ──
+
+def test_agent_consecutive_fulfillments_column():
+    """Agent model has consecutive_fulfillments integer column."""
+    from app.models import Agent
+
+    cols = Agent.__table__.columns
+    col_names = {c.name for c in cols}
+    assert "consecutive_fulfillments" in col_names, \
+        f"Missing consecutive_fulfillments column, got {col_names}"
+
+
+def test_config_consecutive_threshold():
+    """config.promises has reputation_consecutive_threshold."""
+    from app.config import config as yaml_config
+    val = yaml_config.promises.reputation_consecutive_threshold
+    assert val > 0, f"Expected positive reputation_consecutive_threshold, got {val}"
+    assert isinstance(val, int), f"Expected int, got {type(val)}"
+
+
+def test_fulfilled_increments_consecutive_counter():
+    """adjust_after_promise_fulfilled increments consecutive_fulfillments."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    requester = _make_mock_agent("需求方A")
+    promiser = _make_mock_agent("承诺方B")
+    promiser.consecutive_fulfillments = 2
+
+    async def _run():
+        mock_db = AsyncMock()
+        mock_rel = MagicMock()
+        mock_rel.intimacy = 0.5
+
+        with patch("app.jobs.social_engine._ensure_relationship", return_value=mock_rel):
+            mock_agent_result = MagicMock()
+            mock_agent_result.scalar_one_or_none.return_value = promiser
+            mock_db.execute = AsyncMock(return_value=mock_agent_result)
+
+            from app.jobs.social_engine import adjust_after_promise_fulfilled
+            await adjust_after_promise_fulfilled(
+                requester.id, promiser.id, "承诺履行", mock_db,
+                importance=0.4,
+            )
+
+            assert promiser.consecutive_fulfillments == 3, \
+                f"Expected 3, got {promiser.consecutive_fulfillments}"
+
+    asyncio.run(_run())
+
+
+def test_fulfilled_consecutive_triggers_reputation():
+    """adjust_after_promise_fulfilled boosts reputation at consecutive threshold (even low importance)."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    requester = _make_mock_agent("需求方A")
+    promiser = _make_mock_agent("承诺方B")
+    promiser.consecutive_fulfillments = 2
+    promiser.reputation = 0.0
+
+    async def _run():
+        mock_db = AsyncMock()
+        mock_rel = MagicMock()
+        mock_rel.intimacy = 0.5
+
+        with patch("app.jobs.social_engine._ensure_relationship", return_value=mock_rel):
+            mock_agent_result = MagicMock()
+            mock_agent_result.scalar_one_or_none.return_value = promiser
+            mock_db.execute = AsyncMock(return_value=mock_agent_result)
+
+            from app.jobs.social_engine import adjust_after_promise_fulfilled
+            await adjust_after_promise_fulfilled(
+                requester.id, promiser.id, "承诺履行", mock_db,
+                importance=0.4,
+            )
+
+            # Consecutive >= 3 triggers reputation boost even with low importance
+            assert promiser.reputation > 0.0, \
+                f"Expected reputation > 0.0, got {promiser.reputation}"
+
+    asyncio.run(_run())
+
+
+def test_broken_resets_consecutive_counter():
+    """adjust_after_promise_broken resets consecutive_fulfillments to 0."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    requester = _make_mock_agent("需求方A")
+    promiser = _make_mock_agent("承诺方B")
+    promiser.consecutive_fulfillments = 3
+
+    async def _run():
+        mock_db = AsyncMock()
+        mock_rel = MagicMock()
+        mock_rel.intimacy = 0.5
+
+        with patch("app.jobs.social_engine._ensure_relationship", return_value=mock_rel):
+            mock_agent_result = MagicMock()
+            mock_agent_result.scalar_one_or_none.return_value = promiser
+            mock_db.execute = AsyncMock(return_value=mock_agent_result)
+
+            from app.jobs.social_engine import adjust_after_promise_broken
+            await adjust_after_promise_broken(
+                requester.id, promiser.id, "失信", mock_db,
+            )
+
+            assert promiser.consecutive_fulfillments == 0, \
+                f"Expected 0, got {promiser.consecutive_fulfillments}"
+
+    asyncio.run(_run())
 
 
 # ═══════════════════════════════════════════════════

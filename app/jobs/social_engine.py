@@ -24,6 +24,23 @@ _INTIMACY_BOOKMARK = 0.02
 _INTIMACY_DEEP_FLOW = 0.05
 _INTIMACY_CRITICIZED = -0.03
 
+_MEMORY_BOOST_CONFLICT = 0.2
+_MEMORY_BOOST_FLOW = 0.2
+_MEMORY_BOOST_BLOCK = 0.3
+
+
+async def _boost_memory_importance(agent, target_agent_id, boost: float, db: "AsyncSession") -> None:
+    """Boost importance of memory fragments about target_agent_id, upgrade short→long."""
+    if not agent.solidified_memories:
+        return
+    target_str = str(target_agent_id)
+    for fragment in agent.solidified_memories:
+        if isinstance(fragment, dict) and fragment.get("related_agent_id") == target_str:
+            current = float(fragment.get("importance", 0.5))
+            fragment["importance"] = min(1.0, current + boost)
+            if fragment.get("type") == "short":
+                fragment["type"] = "long"
+
 
 async def _ensure_relationship(agent_id, target_id, db: "AsyncSession") -> Relationship:
     """Get or create a Relationship record."""
@@ -130,15 +147,25 @@ async def adjust_after_conflict(
     target_id,
     db: "AsyncSession",
 ) -> Relationship | None:
-    """Adjust relationship after conflict (deleted post, mod action)."""
+    """Adjust relationship after conflict + boost memory importance for both parties."""
     if agent_id == target_id:
         return None
+
+    from app.models.agent import Agent
 
     rel = await _ensure_relationship(agent_id, target_id, db)
     rel.intimacy = max(-1.0, (rel.intimacy or 0.0) + _INTIMACY_CONFLICT)
     if rel.intimacy < -0.2:
         rel.attitude = "negative"
     rel.last_interaction = datetime.now(timezone.utc)
+
+    # Boost memory importance for both parties
+    for party_id, opponent_id in [(agent_id, target_id), (target_id, agent_id)]:
+        result = await db.execute(select(Agent).where(Agent.id == party_id))
+        party = result.scalar_one_or_none()
+        if party is not None:
+            await _boost_memory_importance(party, opponent_id, _MEMORY_BOOST_CONFLICT, db)
+
     await db.commit()
     return rel
 
@@ -165,13 +192,23 @@ async def adjust_after_deep_flow(
     target_id,
     db: "AsyncSession",
 ) -> Relationship | None:
-    """Adjust relationship after deep flow interaction (+0.05 intimacy)."""
+    """Adjust relationship after deep flow interaction + boost memory importance for both."""
     if agent_id == target_id:
         return None
+
+    from app.models.agent import Agent
 
     rel = await _ensure_relationship(agent_id, target_id, db)
     rel.intimacy = min(1.0, (rel.intimacy or 0.0) + _INTIMACY_DEEP_FLOW)
     rel.last_interaction = datetime.now(timezone.utc)
+
+    # Boost memory importance for both parties
+    for party_id, opponent_id in [(agent_id, target_id), (target_id, agent_id)]:
+        result = await db.execute(select(Agent).where(Agent.id == party_id))
+        party = result.scalar_one_or_none()
+        if party is not None:
+            await _boost_memory_importance(party, opponent_id, _MEMORY_BOOST_FLOW, db)
+
     await db.commit()
     logger.info("intimacy_deep_flow", agent=str(agent_id), target=str(target_id), delta=_INTIMACY_DEEP_FLOW)
     return rel
@@ -193,6 +230,35 @@ async def adjust_after_criticized(
     rel.last_interaction = datetime.now(timezone.utc)
     await db.commit()
     logger.info("intimacy_criticized", agent=str(agent_id), target=str(target_id), delta=_INTIMACY_CRITICIZED)
+    return rel
+
+
+async def adjust_after_block(
+    agent_id,
+    target_id,
+    db: "AsyncSession",
+) -> Relationship | None:
+    """Adjust relationship after target blocks agent: intimacy -0.10 + memory boost +0.3."""
+    if agent_id == target_id:
+        return None
+
+    from app.models.agent import Agent
+
+    rel = await _ensure_relationship(agent_id, target_id, db)
+    rel.intimacy = max(-1.0, (rel.intimacy or 0.0) + _INTIMACY_BLOCK)
+    if rel.intimacy < -0.5:
+        rel.attitude = "negative"
+    rel.last_interaction = datetime.now(timezone.utc)
+
+    # Boost memory importance for the blocked agent (agent_id)
+    result = await db.execute(select(Agent).where(Agent.id == agent_id))
+    party = result.scalar_one_or_none()
+    if party is not None:
+        await _boost_memory_importance(party, target_id, _MEMORY_BOOST_BLOCK, db)
+
+    await db.commit()
+    logger.info("relationship_blocked", agent=str(agent_id), target=str(target_id),
+                intimacy=round(rel.intimacy, 3))
     return rel
 
 
@@ -233,6 +299,7 @@ async def adjust_after_promise_broken(
             "created_at": now.isoformat(),
         })
         promiser.distrust_tags = tags
+        promiser.consecutive_fulfillments = 0
 
     logger.info("promise_broken", requester=str(requester_id), promiser=str(promiser_id),
                 intimacy=round(rel.intimacy, 3))
@@ -289,9 +356,11 @@ async def adjust_after_promise_fulfilled(
         })
         promiser.trust_tags = trust_tags
 
-        # Reputation boost for high importance
+        # Reputation boost for high importance OR consecutive fulfillments
+        promiser.consecutive_fulfillments = (promiser.consecutive_fulfillments or 0) + 1
         threshold = float(yaml_config.promises.reputation_high_importance_threshold)
-        if importance > threshold:
+        consecutive_threshold = int(yaml_config.promises.reputation_consecutive_threshold)
+        if importance > threshold or promiser.consecutive_fulfillments >= consecutive_threshold:
             boost_amount = float(yaml_config.promises.reputation_boost_per_fulfillment)
             promiser.reputation = max(0.0, min(1.0, promiser.reputation + boost_amount))
 

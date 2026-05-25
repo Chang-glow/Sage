@@ -28,6 +28,17 @@ class FakeAgent:
         self.persona_prompt = None
         self.income_level = None
         self.school_or_company = None
+        self.distrust_tags = []
+        self.trust_tags = []
+        self.solidified_memories = []
+        self.reputation = 0.0
+        self.consecutive_fulfillments = 0
+        self.status = "active"
+        self.stealth_mode = False
+        self.is_online = False
+        self.bio = ""
+        self.notification_settings = {}
+        self.token_limit_override = None
         for k, v in kwargs.items():
             if k not in ("personality_vector", "interests"):
                 setattr(self, k, v)

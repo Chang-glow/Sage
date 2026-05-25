@@ -509,6 +509,103 @@ def test_expired_distrust_tag_filtered_out():
     assert len(ctx.get("distrust_tags", [])) == 0, "Expired tags should be filtered out"
 
 
+# ── 0.12.11b: Expectation auto-reset ──
+
+def test_expectation_reset_2x_overdue():
+    """check_promise_deadlines_task sets expectation=0 when > 2x due_time overdue."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+    import uuid as _uuid
+
+    now = datetime.now(timezone.utc)
+    # Promise was for 3 days, created 10 days ago, due 7 days ago = 3 days past 2x window
+    created = now - timedelta(days=10)
+    deadline = now - timedelta(days=7)
+
+    mock_promise = MagicMock()
+    mock_promise.id = _uuid.uuid4()
+    mock_promise.requester_id = _uuid.uuid4()
+    mock_promise.promiser_id = _uuid.uuid4()
+    mock_promise.content = "test"
+    mock_promise.status = "pending"
+    mock_promise.due_time = deadline
+    mock_promise.created_at = created
+    mock_promise.float_value = 10080.0  # 7 days grace — not broken
+    mock_promise.expectation = 50.0
+    mock_promise.importance = 0.5
+
+    async def _run():
+        mock_db = AsyncMock()
+        mock_llm = AsyncMock()
+
+        mock_agent = _make_mock_agent()
+        mock_agent_result = MagicMock()
+        mock_agent_result.scalar_one_or_none.return_value = mock_agent
+
+        mock_promise_result = MagicMock()
+        mock_promise_result.scalars.return_value.all.return_value = [mock_promise]
+
+        mock_db.execute = AsyncMock(side_effect=[mock_promise_result, mock_agent_result, mock_agent_result])
+
+        with patch("app.engine.feature_flags.plugin_registry") as mock_registry, \
+             patch("app.engine.promise_engine.calculate_expectation", return_value=60.0):
+            mock_registry.is_enabled.return_value = True
+            from app.jobs.scheduler import check_promise_deadlines_task
+            await check_promise_deadlines_task(mock_db, mock_llm)
+
+        assert mock_promise.expectation == 0.0, \
+            f"Expected 0.0, got {mock_promise.expectation}"
+
+    asyncio.run(_run())
+
+
+def test_expectation_not_reset_within_2x_window():
+    """check_promise_deadlines_task does NOT reset expectation when within 2x window."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+    import uuid as _uuid
+
+    now = datetime.now(timezone.utc)
+    # Promise for 2 days, created 3 days ago, due 1 day ago = still within 2x
+    created = now - timedelta(days=3)
+    deadline = now - timedelta(days=1)
+
+    mock_promise = MagicMock()
+    mock_promise.id = _uuid.uuid4()
+    mock_promise.requester_id = _uuid.uuid4()
+    mock_promise.promiser_id = _uuid.uuid4()
+    mock_promise.content = "test"
+    mock_promise.status = "pending"
+    mock_promise.due_time = deadline
+    mock_promise.created_at = created
+    mock_promise.float_value = 2880.0  # 2 days grace
+    mock_promise.expectation = 50.0
+    mock_promise.importance = 0.5
+
+    async def _run():
+        mock_db = AsyncMock()
+        mock_llm = AsyncMock()
+
+        mock_agent = _make_mock_agent()
+        mock_agent_result = MagicMock()
+        mock_agent_result.scalar_one_or_none.return_value = mock_agent
+
+        mock_promise_result = MagicMock()
+        mock_promise_result.scalars.return_value.all.return_value = [mock_promise]
+
+        mock_db.execute = AsyncMock(side_effect=[mock_promise_result, mock_agent_result, mock_agent_result])
+
+        with patch("app.engine.feature_flags.plugin_registry") as mock_registry, \
+             patch("app.engine.promise_engine.calculate_expectation", return_value=50.0):
+            mock_registry.is_enabled.return_value = True
+            from app.jobs.scheduler import check_promise_deadlines_task
+            await check_promise_deadlines_task(mock_db, mock_llm)
+
+        # Recalculated to 50.0, reset check doesn't trigger (within 2x window)
+        assert mock_promise.expectation == 50.0, \
+            f"Expected 50.0, got {mock_promise.expectation}"
+
+    asyncio.run(_run())
+
+
 # ═══════════════════════════════════════════════════
 
 if __name__ == "__main__":

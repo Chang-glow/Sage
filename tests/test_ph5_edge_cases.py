@@ -26,6 +26,12 @@ class FakeAgent:
         self.income_level = None
         self.school_or_company = None
         self.stealth_mode = False
+        self.distrust_tags = []
+        self.trust_tags = []
+        self.solidified_memories = []
+        self.reputation = 0.0
+        self.consecutive_fulfillments = 0
+        self.notification_settings = {}
 
 
 class FakeSchedule:

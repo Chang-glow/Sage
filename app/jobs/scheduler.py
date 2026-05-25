@@ -245,6 +245,7 @@ async def check_promise_deadlines_task(db, llm_caller: Callable) -> None:
 
     broken_count = 0
     expectation_updated = 0
+    now = datetime.now(timezone.utc)
     for promise in pending_promises:
         # Update expectation for every pending promise
         try:
@@ -259,6 +260,12 @@ async def check_promise_deadlines_task(db, llm_caller: Callable) -> None:
                 expectation_updated += 1
         except Exception:
             logger.warning("expectation_calc_failed", promise_id=str(promise.id))
+
+        # Reset expectation to 0 when 2x original duration overdue
+        if promise.due_time is not None and promise.created_at is not None:
+            original_duration = promise.due_time - promise.created_at
+            if now > promise.due_time + original_duration * 2:
+                promise.expectation = 0.0
 
         # Check broken status (only for promises with deadline)
         if promise.due_time is None:

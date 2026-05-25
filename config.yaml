@@ -30,6 +30,7 @@ flow:
   max_rounds_per_session: 10
   max_sessions_per_day: 2
   exit_rounds_no_desire: 3 # 连续 N 轮无回复欲望则退出
+  memory_importance_boost: 0.2 # 长时间心流记忆重要度提升
 
 # ── 调度系统 ──
 scheduler:
@@ -157,3 +158,4 @@ topics:
 conflict:
   reflection_cooldown_minutes: 10        # 冲突后反射冷却时间
   conflict_mutual_reply_threshold: 5     # 互怼回合数阈值
+  memory_importance_boost: 0.2           # 深度争吵记忆重要度提升
