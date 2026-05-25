@@ -293,7 +293,7 @@ async def adjust_after_promise_fulfilled(
         threshold = float(yaml_config.promises.reputation_high_importance_threshold)
         if importance > threshold:
             boost_amount = float(yaml_config.promises.reputation_boost_per_fulfillment)
-            promiser.reputation = min(1.0, promiser.reputation + boost_amount)
+            promiser.reputation = max(0.0, min(1.0, promiser.reputation + boost_amount))
 
     await db.commit()
     logger.info("promise_fulfilled", requester=str(requester_id), promiser=str(promiser_id),
