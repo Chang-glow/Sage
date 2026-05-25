@@ -234,6 +234,7 @@ class TestCreateBarFromApplication(unittest.TestCase):
 
         self.assertIsNotNone(post.bar_id)
         self.assertTrue(post.is_rule_post)
+        self.assertTrue(post.is_essential)
 
 
 class TestReviseBarRules(unittest.TestCase):

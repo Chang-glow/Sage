@@ -191,6 +191,7 @@ async def create_bar_from_application(
     # Mark the application post as bar rule post and assign to bar
     post.bar_id = bar.id
     post.is_rule_post = True
+    post.is_essential = True
 
     return bar
 
