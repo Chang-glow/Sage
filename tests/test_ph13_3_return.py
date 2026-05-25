@@ -87,6 +87,24 @@ class TestReturnToHometown(unittest.TestCase):
             result = check_return_to_hometown(agent, rng)
         self.assertIsNone(result)
 
+    def test_age_30_or_above_returns_none(self):
+        """Age >= 30 → None, even if probability check would pass."""
+        from app.engine.world_dynamic import check_return_to_hometown
+        import random as _random
+
+        agent = self._make_away_agent(age=30, occupation="初入职场")
+        rng = _random.Random(42)
+        # Force probability to pass so age check is the only gate
+        with patch.object(rng, "random", return_value=0.0):
+            result = check_return_to_hometown(agent, rng)
+            self.assertIsNone(result,
+                "P3-2 not yet implemented: age >= 30 should block return_to_hometown")
+
+        agent.age = 35
+        with patch.object(rng, "random", return_value=0.0):
+            result = check_return_to_hometown(agent, rng)
+            self.assertIsNone(result)
+
 
 class TestReturnToHometownInCareerTask(unittest.TestCase):
     """Verify check_return_to_hometown is called in career task."""

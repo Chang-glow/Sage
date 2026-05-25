@@ -426,6 +426,13 @@ def check_initial_employment(agent: Agent, rng: random.Random) -> dict | None:
         # Update income/education
         from app.engine.agent_factory import _lookup_income_edu
         agent.income_level, agent.education = _lookup_income_edu(agent.age, agent.occupation)
+        # P3-3: non-Pingling natives may go back to hometown after graduation
+        if agent.hometown and agent.hometown != "平陵" and rng.random() < 0.3:
+            agent.is_away = True
+            inject_life_event(agent, create_life_event(
+                agent.age, "职业", f"毕业后选择回老家{agent.hometown}", 0.6,
+            ))
+
         result = {"type": "employment", "status": "employed", "occupation": agent.occupation,
                   "company": agent.school_or_company}
         inject_life_event(agent, create_life_event(
@@ -443,6 +450,13 @@ def check_job_change(agent: Agent, rng: random.Random) -> dict | None:
         return None
 
     annual_prob = float(getattr(yaml_config.world_dynamic, "career_job_change_probability", 0.07))
+
+    # P3-1: negative work events double job change probability
+    if agent.life_history:
+        work_neg_keywords = ["被排挤", "不满", "冲突", "被批评", "降薪", "加班"]
+        if any(kw in str(e.get("event", "")) for e in agent.life_history for kw in work_neg_keywords):
+            annual_prob *= 2.0
+
     daily_prob = annual_prob / 365.0
     if rng.random() >= daily_prob:
         return None
@@ -551,6 +565,8 @@ def check_return_to_hometown(agent: Agent, rng: random.Random) -> dict | None:
     if agent.age < 22:
         return None
     if agent.occupation not in ("学生", "初入职场"):
+        return None
+    if agent.age >= 30:
         return None
 
     annual_prob = float(getattr(yaml_config.world_dynamic, "career_return_to_hometown_probability", 0.15))
@@ -834,6 +850,8 @@ async def world_dynamic_career_task(db, llm_caller: Callable) -> None:
         if jc:
             job_changes += 1
             changed = True
+            if jc.get("subtype") == "hop":
+                await _regenerate_schedule(agent, today, db, llm_caller)
 
         ue = check_unemployment(agent, rng)
         if ue:

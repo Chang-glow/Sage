@@ -227,6 +227,84 @@ class TestRegenerateScheduleAfterLifeEvent(unittest.TestCase):
 
         asyncio.run(_run())
 
+    def test_job_hop_triggers_regenerate(self):
+        """Job hop (check_job_change with subtype=hop) triggers schedule regeneration."""
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        async def _run():
+            from app.engine.world_dynamic import world_dynamic_career_task
+
+            agent = MagicMock()
+            agent.status = "active"
+            agent.occupation = "普工"
+            agent.school_or_company = "平陵电子厂"
+            agent.is_away = False
+            agent.age = 30
+            agent.life_history = None
+            agent.district = "RES-001"
+
+            db = MagicMock()
+            db.add = MagicMock()
+            db.commit = AsyncMock()
+            db.execute = AsyncMock()
+
+            mock_result = MagicMock()
+            mock_result.scalars.return_value.all.return_value = [agent]
+            db.execute.return_value = mock_result
+
+            with patch("app.engine.world_dynamic.check_return_to_hometown", return_value=None), \
+                 patch("app.engine.world_dynamic.check_initial_employment", return_value=None), \
+                 patch("app.engine.world_dynamic.check_job_change",
+                       return_value={"type": "job_change", "subtype": "hop"}), \
+                 patch("app.engine.world_dynamic.check_unemployment", return_value=None), \
+                 patch("app.engine.world_dynamic.check_job_search_for_unemployed", return_value=None), \
+                 patch("app.engine.world_dynamic._regenerate_schedule") as mock_regen:
+                await world_dynamic_career_task(db, MagicMock())
+
+            mock_regen.assert_called()
+
+        asyncio.run(_run())
+
+    def test_internal_transfer_no_regenerate(self):
+        """Internal transfer (subtype=internal_transfer) does NOT trigger regenerate."""
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        async def _run():
+            from app.engine.world_dynamic import world_dynamic_career_task
+
+            agent = MagicMock()
+            agent.status = "active"
+            agent.occupation = "普工"
+            agent.school_or_company = "平陵电子厂"
+            agent.is_away = False
+            agent.age = 30
+            agent.life_history = None
+            agent.district = "RES-001"
+
+            db = MagicMock()
+            db.add = MagicMock()
+            db.commit = AsyncMock()
+            db.execute = AsyncMock()
+
+            mock_result = MagicMock()
+            mock_result.scalars.return_value.all.return_value = [agent]
+            db.execute.return_value = mock_result
+
+            with patch("app.engine.world_dynamic.check_return_to_hometown", return_value=None), \
+                 patch("app.engine.world_dynamic.check_initial_employment", return_value=None), \
+                 patch("app.engine.world_dynamic.check_job_change",
+                       return_value={"type": "job_change", "subtype": "internal_transfer"}), \
+                 patch("app.engine.world_dynamic.check_unemployment", return_value=None), \
+                 patch("app.engine.world_dynamic.check_job_search_for_unemployed", return_value=None), \
+                 patch("app.engine.world_dynamic._regenerate_schedule") as mock_regen:
+                await world_dynamic_career_task(db, MagicMock())
+
+            mock_regen.assert_not_called()
+
+        asyncio.run(_run())
+
 
 if __name__ == "__main__":
     unittest.main()

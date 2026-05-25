@@ -366,6 +366,75 @@ class TestCareerMobility(unittest.TestCase):
                 self.assertEqual(result["type"], "job_search")
                 self.assertIn(result["found"], [True, False])
 
+    def test_job_change_negative_work_history_doubles_prob(self):
+        """Negative work events in life_history double job change probability."""
+        from app.engine.world_dynamic import check_job_change
+        import random as _random
+
+        agent = _make_agent(
+            age=30, occupation="普工", school_or_company="平陵电子厂",
+            life_history=[
+                {"age": 28, "event": "被同事排挤，心情低落", "category": "职业"},
+                {"age": 29, "event": "加班太多，对工作不满", "category": "职业"},
+            ],
+        )
+        rng = _random.Random(42)
+        # Normal prob returns None, but function shouldn't crash scanning life_history
+        result = check_job_change(agent, rng)
+        self.assertIsNone(result)
+
+        # Force rng.random=0.0003 — above undoubled prob (0.00019) but below doubled (0.00038)
+        with patch.object(rng, "random", return_value=0.0003):
+            with patch("app.engine.world_dynamic.get_companies_by_occupation", return_value=[
+                {"name": "平陵机械厂", "type": "工厂", "district": "RES-005"},
+            ]):
+                result = check_job_change(agent, rng)
+                self.assertIsNotNone(result)
+
+    def test_initial_employment_non_pingling_hometown_go_back(self):
+        """Agent with non-Pingling hometown may return to hometown (is_away=True).
+
+        rng.random=0.20 skips unemployed check (0.20 >= 0.15) and falls into
+        the go_back branch (~30%). Without the go_back code, agent stays employed
+        in Pingling — the test checks specifically for is_away=True.
+        """
+        from app.engine.world_dynamic import check_initial_employment
+        import random as _random
+
+        agent = _make_agent(
+            age=22, occupation="学生", school_or_company="平陵文理学院",
+            hometown="省城",
+        )
+        rng = _random.Random(42)
+        with patch.object(rng, "random", return_value=0.20):
+            with patch("app.engine.world_dynamic.get_companies_by_occupation", return_value=[
+                {"name": "平陵电子厂", "type": "工厂", "district": "RES-001"},
+            ]):
+                result = check_initial_employment(agent, rng)
+                self.assertIsNotNone(result)
+                # Without go_back code, agent.is_away stays False
+                # With go_back code, agent.is_away=True and status="go_back_hometown"
+                self.assertTrue(agent.is_away,
+                    "P3-3 not yet implemented: non-Pingling hometown agent should trigger go_back")
+
+    def test_initial_employment_pingling_hometown_stays(self):
+        """Agent with hometown='平陵' does NOT trigger go_back branch."""
+        from app.engine.world_dynamic import check_initial_employment
+        import random as _random
+
+        agent = _make_agent(
+            age=22, occupation="学生", school_or_company="平陵文理学院",
+            hometown="平陵",
+        )
+        rng = _random.Random(42)
+        with patch.object(rng, "random", return_value=0.5):
+            with patch("app.engine.world_dynamic.get_companies_by_occupation", return_value=[
+                {"name": "平陵电子厂", "type": "工厂", "district": "RES-001"},
+            ]):
+                result = check_initial_employment(agent, rng)
+                self.assertIsNotNone(result)
+                self.assertFalse(agent.is_away)
+
 
 class TestCityDevelopment(unittest.TestCase):
 
