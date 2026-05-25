@@ -306,6 +306,7 @@ class TestAppointSubMod(unittest.TestCase):
     """Tests for appoint_sub_mod / remove_sub_mod."""
 
     def test_appoint_sub_mod(self):
+        """Appointment succeeds when intimacy > 0.3."""
         from app.engine.bar_mod_engine import appoint_sub_mod
 
         mock_db = AsyncMock()
@@ -317,16 +318,84 @@ class TestAppointSubMod(unittest.TestCase):
 
         target_member = MagicMock()
         target_member.role = "member"
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.first.return_value = target_member
-        mock_db.execute = AsyncMock(return_value=mock_result)
+        mock_bar_member_result = MagicMock()
+        mock_bar_member_result.scalars.return_value.first.return_value = target_member
+
+        rel = MagicMock()
+        rel.intimacy = 0.5
+        mock_rel_result = MagicMock()
+        mock_rel_result.scalars.return_value.first.return_value = rel
+
+        mock_db.execute = AsyncMock(side_effect=[mock_bar_member_result, mock_rel_result])
 
         async def _run():
             return await appoint_sub_mod(owner, target_id, bar, mock_db)
 
         import asyncio
-        asyncio.run(_run())
+        log = asyncio.run(_run())
+        self.assertIsNotNone(log)
         self.assertEqual(target_member.role, "sub_mod")
+
+    def test_appoint_sub_mod_low_intimacy_denied(self):
+        """Appointment denied when intimacy <= 0.3."""
+        from app.engine.bar_mod_engine import appoint_sub_mod
+
+        mock_db = AsyncMock()
+        owner = MagicMock()
+        owner.id = uuid.uuid4()
+        target_id = str(uuid.uuid4())
+        bar = MagicMock()
+        bar.id = uuid.uuid4()
+
+        target_member = MagicMock()
+        target_member.role = "member"
+        mock_bar_member_result = MagicMock()
+        mock_bar_member_result.scalars.return_value.first.return_value = target_member
+
+        rel = MagicMock()
+        rel.intimacy = 0.1
+        mock_rel_result = MagicMock()
+        mock_rel_result.scalars.return_value.first.return_value = rel
+
+        mock_db.execute = AsyncMock(side_effect=[mock_bar_member_result, mock_rel_result])
+
+        async def _run():
+            return await appoint_sub_mod(owner, target_id, bar, mock_db)
+
+        import asyncio
+        result = asyncio.run(_run())
+        self.assertIsNone(result)
+        self.assertEqual(target_member.role, "member")  # unchanged
+
+    def test_appoint_sub_mod_no_relationship_denied(self):
+        """Appointment denied when no relationship exists."""
+        from app.engine.bar_mod_engine import appoint_sub_mod
+
+        mock_db = AsyncMock()
+        owner = MagicMock()
+        owner.id = uuid.uuid4()
+        target_id = str(uuid.uuid4())
+        bar = MagicMock()
+        bar.id = uuid.uuid4()
+
+        target_member = MagicMock()
+        target_member.role = "member"
+        mock_bar_member_result = MagicMock()
+        mock_bar_member_result.scalars.return_value.first.return_value = target_member
+
+        # No relationship found
+        mock_rel_result = MagicMock()
+        mock_rel_result.scalars.return_value.first.return_value = None
+
+        mock_db.execute = AsyncMock(side_effect=[mock_bar_member_result, mock_rel_result])
+
+        async def _run():
+            return await appoint_sub_mod(owner, target_id, bar, mock_db)
+
+        import asyncio
+        result = asyncio.run(_run())
+        self.assertIsNone(result)
+        self.assertEqual(target_member.role, "member")  # unchanged
 
     def test_remove_sub_mod(self):
         from app.engine.bar_mod_engine import remove_sub_mod

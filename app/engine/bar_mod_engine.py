@@ -253,6 +253,19 @@ async def appoint_sub_mod(
     if member is None:
         return None
 
+    # Intimacy check: owner must have intimacy > 0.3 with the candidate
+    from app.models.relationship import Relationship
+
+    rel_result = await db.execute(
+        select(Relationship).where(
+            Relationship.agent_id == owner.id,
+            Relationship.target_id == uuid.UUID(target_agent_id),
+        )
+    )
+    rel = rel_result.scalars().first()
+    if rel is None or rel.intimacy <= 0.3:
+        return None
+
     member.role = "sub_mod"
     return await record_mod_action(
         owner.id, bar.id, "appoint_sub_mod", "member", uuid.UUID(target_agent_id), None, db
