@@ -126,8 +126,8 @@ def test_validate_partial():
     import app.config as mod
     orig = mod.settings
     try:
-        mod.settings = Settings(database_url="db://t", deepseek_api_key="ok",
-                                siliconflow_api_key="", admin_password="placeholder-ok")
+        mod.settings = Settings(database_url="db://t", deepseek_api_key="placeholder-key",
+                                siliconflow_api_key="", admin_password="placeholder-pw")
         missing = validate()
         assert missing == ["SILICONFLOW_API_KEY"]
     finally:
