@@ -505,6 +505,74 @@ daily_task_registry.register(
     minute=0,
 )
 
+# ── Phase 14: Sage proxy moderation scan ──
+_SPAM_KEYWORDS = [
+    "http://", "https://", "www.", "加微信", "加我微信", "扫码",
+    "免费领取", "点击领取", "点击链接", "兼职", "刷单", "日赚",
+]
+_ABUSE_KEYWORDS = ["傻逼", "操你", "去死", "废物", "脑残"]
+
+
+async def _sage_proxy_mod_scan(db, llm_caller):
+    """Scan sage-managed bars for obvious spam/abuse posts and hide them."""
+    from app.models.bar import Bar
+    from app.models.post import Post as PostModel
+    from app.engine.bar_mod_engine import hide_post
+
+    sage_result = await db.execute(
+        select(Agent).where(Agent.nickname == "Sage")
+    )
+    sage = sage_result.scalars().first()
+    if sage is None:
+        logger.warning("sage_proxy_no_sage_agent")
+        return
+
+    result = await db.execute(
+        select(Bar).where(Bar.is_sage_managed == True)
+    )
+    bars = result.scalars().all()
+
+    if not bars:
+        return
+
+    for bar in bars:
+        try:
+            posts_result = await db.execute(
+                select(PostModel).where(
+                    PostModel.bar_id == bar.id,
+                    PostModel.is_hidden == False,
+                    PostModel.created_at >= datetime.now(timezone.utc) - timedelta(hours=24),
+                ).limit(50)
+            )
+            posts = posts_result.scalars().all()
+
+            for post in posts:
+                text = (post.title or "") + " " + (post.content or "")
+                text_lower = text.lower()
+
+                is_spam = any(kw in text_lower for kw in _SPAM_KEYWORDS)
+                is_abuse = any(kw in text_lower for kw in _ABUSE_KEYWORDS)
+
+                if is_spam or is_abuse:
+                    reason = "Sage 代管自动检测: " + ("垃圾广告" if is_spam else "谩骂")
+                    await hide_post(sage, post, bar, reason, db)
+                    logger.info(
+                        "sage_proxy_hid_post",
+                        bar_name=bar.name,
+                        post_title=post.title[:40],
+                        reason=reason,
+                    )
+        except Exception:
+            logger.exception("sage_proxy_mod_scan_bar_failed", bar_id=str(bar.id))
+
+
+daily_task_registry.register(
+    "sage_proxy_mod_scan",
+    _sage_proxy_mod_scan,
+    hour=4,
+    minute=17,
+)
+
 
 async def run_scheduler_loop(
     session_factory: async_sessionmaker,

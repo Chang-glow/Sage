@@ -319,5 +319,107 @@ class TestSageProxyManage(unittest.TestCase):
         self.assertTrue(bar.is_sage_managed)
 
 
+class TestSageProxyModScan(unittest.TestCase):
+    """Tests for _sage_proxy_mod_scan daily task."""
+
+    def setUp(self):
+        self.patch_hide = patch("app.engine.bar_mod_engine.hide_post")
+        self.mock_hide = self.patch_hide.start()
+
+    def tearDown(self):
+        self.patch_hide.stop()
+
+    def test_spam_post_gets_hidden(self):
+        """Spam post in sage-managed bar → hide_post called."""
+        from app.jobs.scheduler import _sage_proxy_mod_scan
+
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock()
+
+        sage_agent = MagicMock()
+        sage_result = MagicMock()
+        sage_result.scalars.return_value.first.return_value = sage_agent
+
+        bar = MagicMock()
+        bar.id = uuid.uuid4()
+        bar.is_sage_managed = True
+
+        spam_post = MagicMock()
+        spam_post.title = "免费送钱"
+        spam_post.content = "加微信 http://spam.example.com 领取大奖"
+
+        bar_result = MagicMock()
+        bar_result.scalars.return_value.all.return_value = [bar]
+
+        post_result = MagicMock()
+        post_result.scalars.return_value.all.return_value = [spam_post]
+
+        mock_db.execute.side_effect = [sage_result, bar_result, post_result]
+
+        async def _run():
+            await _sage_proxy_mod_scan(mock_db, None)
+
+        import asyncio
+        asyncio.run(_run())
+        self.mock_hide.assert_called_once()
+
+    def test_clean_post_not_hidden(self):
+        """Clean post in sage-managed bar → no action."""
+        from app.jobs.scheduler import _sage_proxy_mod_scan
+
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock()
+
+        sage_agent = MagicMock()
+        sage_result = MagicMock()
+        sage_result.scalars.return_value.first.return_value = sage_agent
+
+        bar = MagicMock()
+        bar.id = uuid.uuid4()
+        bar.is_sage_managed = True
+
+        clean_post = MagicMock()
+        clean_post.title = "今天天气真好"
+        clean_post.content = "大家来讨论一下春天的花吧"
+
+        bar_result = MagicMock()
+        bar_result.scalars.return_value.all.return_value = [bar]
+
+        post_result = MagicMock()
+        post_result.scalars.return_value.all.return_value = [clean_post]
+
+        mock_db.execute.side_effect = [sage_result, bar_result, post_result]
+
+        async def _run():
+            await _sage_proxy_mod_scan(mock_db, None)
+
+        import asyncio
+        asyncio.run(_run())
+        self.mock_hide.assert_not_called()
+
+    def test_non_sage_managed_skipped(self):
+        """Non sage-managed bars → skipped entirely."""
+        from app.jobs.scheduler import _sage_proxy_mod_scan
+
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock()
+
+        sage_agent = MagicMock()
+        sage_result = MagicMock()
+        sage_result.scalars.return_value.first.return_value = sage_agent
+
+        bar_result = MagicMock()
+        bar_result.scalars.return_value.all.return_value = []
+
+        mock_db.execute.side_effect = [sage_result, bar_result]
+
+        async def _run():
+            await _sage_proxy_mod_scan(mock_db, None)
+
+        import asyncio
+        asyncio.run(_run())
+        self.mock_hide.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
